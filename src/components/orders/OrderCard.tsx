@@ -1,130 +1,620 @@
 
-import { Card, CardContent } from "@/components/ui/card";
+import { useState } from 'react';
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { User, MapPin, Package, Phone, DollarSign, FileEdit } from "lucide-react";
-import { useState } from "react";
-import { Order } from "@/pages/OrdersPage";
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Pencil, Trash2, DollarSign, Users } from "lucide-react";
+import { useToast } from "@/components/ui/use-toast";
+import { supabase } from "@/integrations/supabase/client";
+import { Order, Payment, Staff, Material, Service, Machine } from "@/pages/OrdersPage";
 
-export function OrderCard({ order }: { order: Order }) {
+interface OrderCardProps {
+  order: Order;
+  fetchOrders: () => void;
+}
+
+export const OrderCard = ({ order, fetchOrders }: OrderCardProps) => {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
-  
-  const getStatusColor = (status: Order["status"]) => {
-    switch (status) {
-      case "lead":
-        return "bg-purple-100 text-purple-800 border-purple-300";
-      case "contacted":
-        return "bg-blue-100 text-blue-800 border-blue-300";
-      case "confirmed":
-        return "bg-cyan-100 text-cyan-800 border-cyan-300";
-      case "progressing":
-        return "bg-yellow-100 text-yellow-800 border-yellow-300";
-      case "completed":
-        return "bg-green-100 text-green-800 border-green-300";
-      case "cancelled":
-        return "bg-red-100 text-red-800 border-red-300";
-      default:
-        return "bg-gray-100 text-gray-800 border-gray-300";
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [isPaymentDialogOpen, setIsPaymentDialogOpen] = useState(false);
+  const [isAssignStaffDialogOpen, setIsAssignStaffDialogOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [editedOrder, setEditedOrder] = useState<Order>({ ...order });
+  const [staffList, setStaffList] = useState<Staff[]>([]);
+  const [selectedStaff, setSelectedStaff] = useState<number[]>(order.assignedStaff?.map(s => s.id) || []);
+  const [materials, setMaterials] = useState<Material[]>([]);
+  const [services, setServices] = useState<Service[]>([]);
+  const [machines, setMachines] = useState<Machine[]>([]);
+  const [payment, setPayment] = useState<Omit<Payment, 'id'>>({
+    order_id: order.id,
+    payment_mode: 'cash',
+    amount: 0,
+    payment_date: new Date().toISOString().split('T')[0]
+  });
+  const { toast } = useToast();
+
+  const totalPaid = order.payments?.reduce((sum, p) => sum + p.amount, 0) || 0;
+  const remainingAmount = (order.final_price || 0) - totalPaid;
+
+  const handleEditOrder = async () => {
+    try {
+      setLoading(true);
+      
+      const finalPrice = (editedOrder.base_price || 0) + (editedOrder.additional_charges || 0);
+      
+      const { error } = await supabase
+        .from('orders')
+        .update({ 
+          client_name: editedOrder.client_name,
+          phone: editedOrder.phone,
+          location: editedOrder.location,
+          material_id: editedOrder.material_id,
+          material_qty: editedOrder.material_qty,
+          service_id: editedOrder.service_id,
+          machine_id: editedOrder.machine_id,
+          base_price: editedOrder.base_price,
+          additional_charges: editedOrder.additional_charges,
+          final_price: finalPrice,
+        })
+        .eq('id', order.id);
+      
+      if (error) throw error;
+      
+      toast({
+        title: "Success",
+        description: "Order updated successfully",
+      });
+      
+      setIsEditDialogOpen(false);
+      fetchOrders();
+    } catch (error) {
+      console.error('Error updating order:', error);
+      toast({
+        title: "Error",
+        description: "Failed to update order",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
     }
   };
 
-  const getPaymentStatus = () => {
-    const totalPaid = order.payments.reduce((sum, payment) => sum + payment.amount, 0);
-    const remaining = order.totalPrice - totalPaid;
-    
-    if (remaining <= 0) return { label: "Fully Paid", color: "bg-green-100 text-green-800" };
-    if (totalPaid > 0) return { label: "Partially Paid", color: "bg-yellow-100 text-yellow-800" };
-    return { label: "Not Paid", color: "bg-red-100 text-red-800" };
+  const handleDeleteOrder = async () => {
+    try {
+      setLoading(true);
+      const { error } = await supabase
+        .from('orders')
+        .delete()
+        .eq('id', order.id);
+      
+      if (error) throw error;
+      
+      toast({
+        title: "Success",
+        description: "Order deleted successfully",
+      });
+      
+      setIsDeleteDialogOpen(false);
+      fetchOrders();
+    } catch (error) {
+      console.error('Error deleting order:', error);
+      toast({
+        title: "Error",
+        description: "Failed to delete order",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const paymentStatus = getPaymentStatus();
+  const handleAddPayment = async () => {
+    try {
+      setLoading(true);
+      const { error } = await supabase
+        .from('payments')
+        .insert([payment]);
+      
+      if (error) throw error;
+      
+      toast({
+        title: "Success",
+        description: "Payment added successfully",
+      });
+      
+      setIsPaymentDialogOpen(false);
+      fetchOrders();
+    } catch (error) {
+      console.error('Error adding payment:', error);
+      toast({
+        title: "Error",
+        description: "Failed to add payment",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchStaff = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('staff')
+        .select('id, name')
+        .order('name');
+      
+      if (error) throw error;
+      
+      setStaffList(data);
+    } catch (error) {
+      console.error('Error fetching staff:', error);
+    }
+  };
+
+  const fetchMaterials = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('materials')
+        .select('id, name')
+        .order('name');
+      
+      if (error) throw error;
+      
+      setMaterials(data);
+    } catch (error) {
+      console.error('Error fetching materials:', error);
+    }
+  };
+
+  const fetchServices = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('services')
+        .select('id, name, price')
+        .order('name');
+      
+      if (error) throw error;
+      
+      setServices(data);
+    } catch (error) {
+      console.error('Error fetching services:', error);
+    }
+  };
+
+  const fetchMachines = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('machines')
+        .select('id, name')
+        .order('name');
+      
+      if (error) throw error;
+      
+      setMachines(data);
+    } catch (error) {
+      console.error('Error fetching machines:', error);
+    }
+  };
+
+  const handleAssignStaff = async () => {
+    try {
+      setLoading(true);
+      
+      // First, delete existing assignments
+      await supabase
+        .from('order_staff')
+        .delete()
+        .eq('order_id', order.id);
+      
+      // Then add new assignments
+      if (selectedStaff.length > 0) {
+        const staffAssignments = selectedStaff.map(staffId => ({
+          order_id: order.id,
+          staff_id: staffId
+        }));
+        
+        const { error } = await supabase
+          .from('order_staff')
+          .insert(staffAssignments);
+        
+        if (error) throw error;
+      }
+      
+      toast({
+        title: "Success",
+        description: "Staff assignments updated successfully",
+      });
+      
+      setIsAssignStaffDialogOpen(false);
+      fetchOrders();
+    } catch (error) {
+      console.error('Error updating staff assignments:', error);
+      toast({
+        title: "Error",
+        description: "Failed to update staff assignments",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { name, value } = e.target;
+    setEditedOrder(prev => ({
+      ...prev,
+      [name]: ["material_qty", "base_price", "additional_charges", "final_price"].includes(name) 
+        ? parseFloat(value) || null 
+        : value
+    }));
+  };
+
+  const handleSelectChange = (name: string, value: string) => {
+    if (name === 'material_id' || name === 'service_id' || name === 'machine_id') {
+      setEditedOrder(prev => ({
+        ...prev,
+        [name]: value ? parseInt(value) : null
+      }));
+
+      // If service is selected, update the base price
+      if (name === 'service_id' && value) {
+        const serviceId = parseInt(value);
+        const selectedService = services.find(s => s.id === serviceId);
+        if (selectedService) {
+          setEditedOrder(prev => ({
+            ...prev,
+            base_price: selectedService.price
+          }));
+        }
+      }
+    } else {
+      setEditedOrder(prev => ({
+        ...prev,
+        [name]: value
+      }));
+    }
+  };
+
+  const handlePaymentInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    setPayment(prev => ({
+      ...prev,
+      [name]: name === 'amount' ? parseFloat(value) || 0 : value
+    }));
+  };
+
+  const handleStaffSelect = (staffId: number) => {
+    setSelectedStaff(prev => {
+      if (prev.includes(staffId)) {
+        return prev.filter(id => id !== staffId);
+      } else {
+        return [...prev, staffId];
+      }
+    });
+  };
 
   return (
-    <Card className="mb-3 border-l-4 shadow-sm hover:shadow-md transition-shadow animate-fade-in" style={{ borderLeftColor: order.status === 'lead' ? '#9333ea' : order.status === 'contacted' ? '#3b82f6' : order.status === 'confirmed' ? '#06b6d4' : order.status === 'progressing' ? '#facc15' : order.status === 'completed' ? '#22c55e' : '#ef4444' }}>
-      <CardContent className="p-4">
-        <div className="flex justify-between items-start mb-3">
-          <h3 className="font-bold text-gray-800">{order.clientName}</h3>
-          <Button variant="ghost" size="sm" onClick={() => setIsEditDialogOpen(true)}>
-            <FileEdit className="h-4 w-4" />
+    <Card className="mb-3 shadow-sm hover:shadow transition-shadow">
+      <CardContent className="p-3">
+        <div className="flex justify-between items-start mb-2">
+          <h3 className="font-semibold text-sm">{order.client_name}</h3>
+          <div className="flex gap-1">
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              className="h-6 w-6" 
+              onClick={() => {
+                setIsEditDialogOpen(true);
+                fetchMaterials();
+                fetchServices();
+                fetchMachines();
+              }}
+            >
+              <Pencil className="h-3 w-3" />
+            </Button>
+            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setIsDeleteDialogOpen(true)}>
+              <Trash2 className="h-3 w-3" />
+            </Button>
+          </div>
+        </div>
+        
+        <div className="text-xs text-gray-500 mb-2">
+          <div>Phone: {order.phone}</div>
+          <div>Location: {order.location}</div>
+        </div>
+        
+        {(order.material_name || order.service_name) && (
+          <div className="text-xs text-gray-700 mb-2">
+            {order.material_name && (
+              <div>
+                Material: {order.material_name} (Qty: {order.material_qty})
+              </div>
+            )}
+            {order.service_name && (
+              <div>Service: {order.service_name}</div>
+            )}
+          </div>
+        )}
+        
+        <div className="flex justify-between items-center text-xs mb-2">
+          <div>
+            <span className="font-semibold">Total:</span> ₹{order.final_price?.toLocaleString() || 0}
+          </div>
+          <div className={remainingAmount > 0 ? "text-red-500" : "text-green-500"}>
+            <span className="font-semibold">Paid:</span> ₹{totalPaid.toLocaleString()} 
+            {remainingAmount > 0 ? ` (₹${remainingAmount.toLocaleString()} due)` : ""}
+          </div>
+        </div>
+        
+        {order.assignedStaff && order.assignedStaff.length > 0 && (
+          <div className="text-xs mb-2">
+            <span className="font-semibold">Assigned to:</span> {order.assignedStaff.map(s => s.name).join(', ')}
+          </div>
+        )}
+        
+        <div className="flex justify-between mt-3">
+          <Button 
+            size="sm" 
+            variant="outline" 
+            className="text-xs"
+            onClick={() => {
+              setPayment({
+                order_id: order.id,
+                payment_mode: 'cash',
+                amount: remainingAmount > 0 ? remainingAmount : 0,
+                payment_date: new Date().toISOString().split('T')[0]
+              });
+              setIsPaymentDialogOpen(true);
+            }}
+          >
+            <DollarSign className="h-3 w-3 mr-1" /> Add Payment
+          </Button>
+          <Button 
+            size="sm" 
+            variant="outline" 
+            className="text-xs"
+            onClick={() => {
+              fetchStaff();
+              setIsAssignStaffDialogOpen(true);
+            }}
+          >
+            <Users className="h-3 w-3 mr-1" /> Assign Staff
           </Button>
         </div>
-        
-        <div className="space-y-2 text-sm">
-          <div className="flex items-center gap-2">
-            <Phone className="h-4 w-4 text-gray-500" />
-            <span>{order.phoneNumber}</span>
-          </div>
-          
-          <div className="flex items-center gap-2">
-            <MapPin className="h-4 w-4 text-gray-500" />
-            <span>{order.location}</span>
-          </div>
-          
-          <div className="flex items-center gap-2">
-            <Package className="h-4 w-4 text-gray-500" />
-            <span>
-              {order.material} ({order.thickness}mm) - {order.quantity} units
-            </span>
-          </div>
-          
-          <div className="flex items-center gap-2">
-            <DollarSign className="h-4 w-4 text-gray-500" />
-            <span>₹ {order.totalPrice.toLocaleString()}</span>
-            <Badge variant="outline" className={paymentStatus.color}>
-              {paymentStatus.label}
-            </Badge>
-          </div>
-        </div>
-        
-        {order.assignedStaff.length > 0 && (
-          <div className="mt-3 pt-3 border-t border-gray-100">
-            <p className="text-xs font-medium text-gray-500 mb-2">Assigned to:</p>
-            <div className="flex flex-wrap gap-1">
-              {order.assignedStaff.map((staff, index) => (
-                <Badge key={index} variant="secondary" className="flex items-center gap-1">
-                  <User className="h-3 w-3" />
-                  {staff}
-                </Badge>
-              ))}
-            </div>
-          </div>
-        )}
-        
-        {order.payments.length > 0 && (
-          <div className="mt-3">
-            <Accordion type="single" collapsible>
-              <AccordionItem value="payments">
-                <AccordionTrigger className="text-xs py-1">
-                  Payment Details
-                </AccordionTrigger>
-                <AccordionContent>
-                  <div className="space-y-1 text-xs">
-                    {order.payments.map((payment) => (
-                      <div key={payment.id} className="flex justify-between items-center">
-                        <span className="capitalize">
-                          {payment.method} ({new Date(payment.date).toLocaleDateString()})
-                        </span>
-                        <span>₹ {payment.amount.toLocaleString()}</span>
-                      </div>
-                    ))}
-                  </div>
-                </AccordionContent>
-              </AccordionItem>
-            </Accordion>
-          </div>
-        )}
       </CardContent>
 
+      {/* Edit Dialog */}
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+        <DialogContent className="max-h-[90vh]">
+          <ScrollArea className="max-h-[80vh] pr-4">
+            <DialogHeader>
+              <DialogTitle>Edit Order</DialogTitle>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+              <div className="space-y-2">
+                <Label htmlFor="client_name">Client Name</Label>
+                <Input
+                  id="client_name"
+                  name="client_name"
+                  value={editedOrder.client_name}
+                  onChange={handleInputChange}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="phone">Phone Number</Label>
+                <Input
+                  id="phone"
+                  name="phone"
+                  value={editedOrder.phone}
+                  onChange={handleInputChange}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="location">Location</Label>
+                <Input
+                  id="location"
+                  name="location"
+                  value={editedOrder.location}
+                  onChange={handleInputChange}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="material_id">Material</Label>
+                <Select 
+                  value={editedOrder.material_id?.toString() || ''} 
+                  onValueChange={(value) => handleSelectChange('material_id', value)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select material" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {materials.map((material) => (
+                      <SelectItem key={material.id} value={material.id.toString()}>
+                        {material.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="material_qty">Quantity</Label>
+                <Input
+                  id="material_qty"
+                  name="material_qty"
+                  type="number"
+                  value={editedOrder.material_qty || ''}
+                  onChange={handleInputChange}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="service_id">Service</Label>
+                <Select 
+                  value={editedOrder.service_id?.toString() || ''} 
+                  onValueChange={(value) => handleSelectChange('service_id', value)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select service" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {services.map((service) => (
+                      <SelectItem key={service.id} value={service.id.toString()}>
+                        {service.name} - ₹{service.price}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="base_price">Base Price (₹)</Label>
+                  <Input
+                    id="base_price"
+                    name="base_price"
+                    type="number"
+                    value={editedOrder.base_price || ''}
+                    onChange={handleInputChange}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="additional_charges">Additional Charges (₹)</Label>
+                  <Input
+                    id="additional_charges"
+                    name="additional_charges"
+                    type="number"
+                    value={editedOrder.additional_charges || ''}
+                    onChange={handleInputChange}
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Total Price (₹)</Label>
+                <div className="text-xl font-bold">
+                  ₹ {((editedOrder.base_price || 0) + (editedOrder.additional_charges || 0)).toLocaleString()}
+                </div>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>Cancel</Button>
+              <Button onClick={handleEditOrder} disabled={loading}>
+                {loading ? "Saving..." : "Save Changes"}
+              </Button>
+            </DialogFooter>
+          </ScrollArea>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Dialog */}
+      <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Edit Order: {order.clientName}</DialogTitle>
+            <DialogTitle>Delete Order</DialogTitle>
           </DialogHeader>
-          {/* Here you would implement form for editing the order details */}
+          <p className="py-4">
+            Are you sure you want to delete this order for <strong>{order.client_name}</strong>? This action cannot be undone.
+          </p>
           <DialogFooter>
-            <Button onClick={() => setIsEditDialogOpen(false)}>Close</Button>
+            <Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)}>Cancel</Button>
+            <Button variant="destructive" onClick={handleDeleteOrder} disabled={loading}>
+              {loading ? "Deleting..." : "Delete Order"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Payment Dialog */}
+      <Dialog open={isPaymentDialogOpen} onOpenChange={setIsPaymentDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add Payment</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="payment_mode">Payment Method</Label>
+              <Select 
+                value={payment.payment_mode} 
+                onValueChange={(value: "cash" | "card" | "upi" | "credit") => 
+                  setPayment({...payment, payment_mode: value})
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select payment method" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="cash">Cash</SelectItem>
+                  <SelectItem value="card">Card</SelectItem>
+                  <SelectItem value="upi">UPI</SelectItem>
+                  <SelectItem value="credit">Credit</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="amount">Amount (₹)</Label>
+              <Input
+                id="amount"
+                name="amount"
+                type="number"
+                value={payment.amount || ''}
+                onChange={handlePaymentInputChange}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="payment_date">Payment Date</Label>
+              <Input
+                id="payment_date"
+                name="payment_date"
+                type="date"
+                value={payment.payment_date}
+                onChange={handlePaymentInputChange}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsPaymentDialogOpen(false)}>Cancel</Button>
+            <Button onClick={handleAddPayment} disabled={loading || payment.amount <= 0}>
+              {loading ? "Adding..." : "Add Payment"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Assign Staff Dialog */}
+      <Dialog open={isAssignStaffDialogOpen} onOpenChange={setIsAssignStaffDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Assign Staff to Order</DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <Label className="mb-2 block">Select Staff Members</Label>
+            {staffList.length === 0 ? (
+              <p className="text-center py-4 text-sm text-gray-500">No staff members found</p>
+            ) : (
+              <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                {staffList.map(staff => (
+                  <div key={staff.id} className="flex items-center gap-2">
+                    <input 
+                      type="checkbox" 
+                      id={`staff-${staff.id}`} 
+                      checked={selectedStaff.includes(staff.id)}
+                      onChange={() => handleStaffSelect(staff.id)}
+                      className="h-4 w-4"
+                    />
+                    <label htmlFor={`staff-${staff.id}`}>{staff.name}</label>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsAssignStaffDialogOpen(false)}>Cancel</Button>
+            <Button onClick={handleAssignStaff} disabled={loading}>
+              {loading ? "Saving..." : "Save Assignments"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
