@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -174,13 +173,28 @@ const OrdersPage = () => {
           .eq('order_id', order.id)
           .order('payment_date', { ascending: false });
         
+        // Ensure order_status is one of the allowed values from the interface
+        const validOrderStatus = (status: string): Order['order_status'] => {
+          const validStatuses: Order['order_status'][] = [
+            "lead", "contacted", "confirmed", "progressing", "completed", "cancelled"
+          ];
+          return validStatuses.includes(status as Order['order_status']) 
+            ? (status as Order['order_status']) 
+            : "lead"; // Default to "lead" if invalid status
+        };
+        
         return {
           ...order,
           id: order.id.toString(),
+          order_status: validOrderStatus(order.order_status),
           material_name: materialName,
           service_name: serviceName,
           assignedStaff,
-          payments: paymentsData ? paymentsData.map(p => ({...p, id: p.id.toString(), order_id: p.order_id.toString()})) : []
+          payments: paymentsData ? paymentsData.map(p => ({
+            ...p, 
+            id: p.id.toString(), 
+            order_id: p.order_id.toString()
+          })) : []
         };
       }));
       

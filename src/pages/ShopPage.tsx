@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import InventoryTab from "@/components/shop/InventoryTab";
-import { MachinesTab } from "@/components/shop/MachinesTab";
+import MachinesTab from "@/components/shop/MachinesTab";
 import StaffTab from "@/components/shop/StaffTab";
 import ServiceTab from "@/components/shop/ServiceTab";
 
