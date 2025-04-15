@@ -90,6 +90,7 @@ const OrdersPage = () => {
   const [machines, setMachines] = useState<Machine[]>([]);
   const [staffList, setStaffList] = useState<Staff[]>([]);
   const [isNewOrderDialogOpen, setIsNewOrderDialogOpen] = useState(false);
+  const [selectedOrderForEdit, setSelectedOrderForEdit] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState<"kanban" | "list">("kanban");
   const { toast } = useToast();
@@ -392,6 +393,13 @@ const OrdersPage = () => {
     });
   };
 
+  const handleEditClick = (order: Order) => {
+    setSelectedOrderForEdit(order);
+    document.querySelector(`[data-order-id="${order.id}"] .edit-button`)?.dispatchEvent(
+      new MouseEvent('click', { bubbles: true })
+    );
+  };
+
   const handleDragEnd = async (result: any) => {
     if (!result.destination) return;
 
@@ -508,6 +516,7 @@ const OrdersPage = () => {
                                 <Draggable key={order.id} draggableId={order.id} index={index}>
                                   {(provided) => (
                                     <div
+                                      data-order-id={order.id}
                                       ref={provided.innerRef}
                                       {...provided.draggableProps}
                                       {...provided.dragHandleProps}
@@ -601,13 +610,8 @@ const OrdersPage = () => {
                             <Button 
                               variant="outline" 
                               size="sm" 
-                              onClick={() => {
-                                // Use the edit dialog in OrderCard
-                                const orderElement = document.querySelector(`[data-order-id="${order.id}"] .edit-button`) as HTMLElement;
-                                if (orderElement) {
-                                  orderElement.click();
-                                }
-                              }}
+                              onClick={() => handleEditClick(order)}
+                              className="edit-list-button"
                             >
                               Edit
                             </Button>
