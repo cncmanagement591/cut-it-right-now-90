@@ -41,7 +41,7 @@ interface Machine {
   updated_at: string | null;
 }
 
-export const MachinesTab = () => {
+const MachinesTab = () => {
   const [machines, setMachines] = useState<Machine[]>([]);
   const [isNewMachineDialogOpen, setIsNewMachineDialogOpen] = useState(false);
   const [isEditMachineDialogOpen, setIsEditMachineDialogOpen] = useState(false);
@@ -401,3 +401,5 @@ export const MachinesTab = () => {
     </div>
   );
 };
+
+export default MachinesTab;
