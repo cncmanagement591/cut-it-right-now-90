@@ -1,7 +1,7 @@
 
 import { useState } from 'react';
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -61,8 +61,9 @@ export const OrderCard = ({ order, fetchOrders }: OrderCardProps) => {
           base_price: editedOrder.base_price,
           additional_charges: editedOrder.additional_charges,
           final_price: finalPrice,
+          order_status: editedOrder.order_status
         })
-        .eq('id', order.id);
+        .eq('id', parseInt(order.id));
       
       if (error) throw error;
       
@@ -91,7 +92,7 @@ export const OrderCard = ({ order, fetchOrders }: OrderCardProps) => {
       const { error } = await supabase
         .from('orders')
         .delete()
-        .eq('id', order.id);
+        .eq('id', parseInt(order.id));
       
       if (error) throw error;
       
@@ -119,7 +120,12 @@ export const OrderCard = ({ order, fetchOrders }: OrderCardProps) => {
       setLoading(true);
       const { error } = await supabase
         .from('payments')
-        .insert([payment]);
+        .insert([{
+          order_id: parseInt(order.id),
+          payment_mode: payment.payment_mode,
+          amount: payment.amount,
+          payment_date: payment.payment_date
+        }]);
       
       if (error) throw error;
       
@@ -210,12 +216,12 @@ export const OrderCard = ({ order, fetchOrders }: OrderCardProps) => {
       await supabase
         .from('order_staff')
         .delete()
-        .eq('order_id', order.id);
+        .eq('order_id', parseInt(order.id));
       
       // Then add new assignments
       if (selectedStaff.length > 0) {
         const staffAssignments = selectedStaff.map(staffId => ({
-          order_id: order.id,
+          order_id: parseInt(order.id),
           staff_id: staffId
         }));
         
@@ -395,6 +401,7 @@ export const OrderCard = ({ order, fetchOrders }: OrderCardProps) => {
           <ScrollArea className="max-h-[80vh] pr-4">
             <DialogHeader>
               <DialogTitle>Edit Order</DialogTitle>
+              <DialogDescription>Update order details and status</DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
               <div className="space-y-2">
@@ -411,7 +418,7 @@ export const OrderCard = ({ order, fetchOrders }: OrderCardProps) => {
                 <Input
                   id="phone"
                   name="phone"
-                  value={editedOrder.phone}
+                  value={editedOrder.phone || ''}
                   onChange={handleInputChange}
                 />
               </div>
@@ -420,9 +427,28 @@ export const OrderCard = ({ order, fetchOrders }: OrderCardProps) => {
                 <Input
                   id="location"
                   name="location"
-                  value={editedOrder.location}
+                  value={editedOrder.location || ''}
                   onChange={handleInputChange}
                 />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="order_status">Status</Label>
+                <Select 
+                  value={editedOrder.order_status} 
+                  onValueChange={(val) => handleSelectChange('order_status', val)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="lead">Lead</SelectItem>
+                    <SelectItem value="contacted">Contacted</SelectItem>
+                    <SelectItem value="confirmed">Order Confirmed</SelectItem>
+                    <SelectItem value="progressing">In Production</SelectItem>
+                    <SelectItem value="completed">Completed</SelectItem>
+                    <SelectItem value="cancelled">Cancelled</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="material_id">Material</Label>

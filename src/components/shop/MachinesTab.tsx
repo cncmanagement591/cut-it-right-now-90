@@ -1,39 +1,60 @@
 
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Plus, Pencil, Trash2, AlertCircle } from "lucide-react";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { supabase } from "@/integrations/supabase/client";
+import { Badge } from "@/components/ui/badge";
+import { PlusIcon, Pencil, Trash } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
+import { supabase } from "@/integrations/supabase/client";
 
 interface Machine {
   id: number;
   name: string;
-  model: string;
+  model: string | null;
   status: "available" | "maintenance" | "unavailable";
+  created_at: string | null;
+  updated_at: string | null;
 }
 
-const MachinesTab = () => {
+export const MachinesTab = () => {
   const [machines, setMachines] = useState<Machine[]>([]);
-  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
-  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
-  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [isNewMachineDialogOpen, setIsNewMachineDialogOpen] = useState(false);
+  const [isEditMachineDialogOpen, setIsEditMachineDialogOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const { toast } = useToast();
   
-  const [currentMachine, setCurrentMachine] = useState<Machine>({
-    id: 0,
+  const [newMachine, setNewMachine] = useState<Omit<Machine, 'id' | 'created_at' | 'updated_at'>>({
     name: "",
     model: "",
     status: "available"
   });
+  
+  const [editMachine, setEditMachine] = useState<Machine | null>(null);
 
   useEffect(() => {
     fetchMachines();
@@ -51,7 +72,13 @@ const MachinesTab = () => {
         throw error;
       }
       
-      setMachines(data);
+      // Convert status string to proper type
+      const typedMachines = data.map(machine => ({
+        ...machine,
+        status: machine.status as "available" | "maintenance" | "unavailable"
+      }));
+      
+      setMachines(typedMachines);
     } catch (error) {
       console.error('Error fetching machines:', error);
       toast({
@@ -64,41 +91,34 @@ const MachinesTab = () => {
     }
   }
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
-    setCurrentMachine(prev => ({
-      ...prev,
-      [name]: value
-    }));
-  };
-
-  const handleStatusChange = (status: "available" | "maintenance" | "unavailable") => {
-    setCurrentMachine(prev => ({
-      ...prev,
-      status
-    }));
-  };
-
   const handleAddMachine = async () => {
     try {
       const { data, error } = await supabase
         .from('machines')
-        .insert([{ 
-          name: currentMachine.name,
-          model: currentMachine.model,
-          status: currentMachine.status
+        .insert([{
+          name: newMachine.name,
+          model: newMachine.model,
+          status: newMachine.status
         }])
         .select();
       
-      if (error) throw error;
+      if (error) {
+        throw error;
+      }
       
-      setMachines([...machines, data[0]]);
-      resetForm();
-      setIsAddDialogOpen(false);
       toast({
         title: "Success",
         description: "Machine added successfully",
       });
+      
+      setNewMachine({
+        name: "",
+        model: "",
+        status: "available"
+      });
+      
+      setIsNewMachineDialogOpen(false);
+      fetchMachines();
     } catch (error) {
       console.error('Error adding machine:', error);
       toast({
@@ -109,26 +129,31 @@ const MachinesTab = () => {
     }
   };
 
-  const handleEditMachine = async () => {
+  const handleUpdateMachine = async () => {
+    if (!editMachine) return;
+    
     try {
       const { error } = await supabase
         .from('machines')
-        .update({ 
-          name: currentMachine.name,
-          model: currentMachine.model,
-          status: currentMachine.status
+        .update({
+          name: editMachine.name,
+          model: editMachine.model,
+          status: editMachine.status
         })
-        .eq('id', currentMachine.id);
+        .eq('id', editMachine.id);
       
-      if (error) throw error;
+      if (error) {
+        throw error;
+      }
       
-      setMachines(machines.map(m => m.id === currentMachine.id ? currentMachine : m));
-      resetForm();
-      setIsEditDialogOpen(false);
       toast({
         title: "Success",
         description: "Machine updated successfully",
       });
+      
+      setEditMachine(null);
+      setIsEditMachineDialogOpen(false);
+      fetchMachines();
     } catch (error) {
       console.error('Error updating machine:', error);
       toast({
@@ -139,22 +164,23 @@ const MachinesTab = () => {
     }
   };
 
-  const handleDeleteMachine = async () => {
+  const handleDeleteMachine = async (id: number) => {
     try {
       const { error } = await supabase
         .from('machines')
         .delete()
-        .eq('id', currentMachine.id);
+        .eq('id', id);
       
-      if (error) throw error;
+      if (error) {
+        throw error;
+      }
       
-      setMachines(machines.filter(m => m.id !== currentMachine.id));
-      resetForm();
-      setIsDeleteDialogOpen(false);
       toast({
         title: "Success",
         description: "Machine deleted successfully",
       });
+      
+      fetchMachines();
     } catch (error) {
       console.error('Error deleting machine:', error);
       toast({
@@ -165,213 +191,213 @@ const MachinesTab = () => {
     }
   };
 
-  const resetForm = () => {
-    setCurrentMachine({
-      id: 0,
-      name: "",
-      model: "",
-      status: "available"
-    });
-  };
-
-  const openEditDialog = (machine: Machine) => {
-    setCurrentMachine(machine);
-    setIsEditDialogOpen(true);
-  };
-
-  const openDeleteDialog = (machine: Machine) => {
-    setCurrentMachine(machine);
-    setIsDeleteDialogOpen(true);
-  };
-
-  const getStatusBadge = (status: Machine["status"]) => {
+  const getStatusBadge = (status: "available" | "maintenance" | "unavailable") => {
     switch (status) {
       case "available":
-        return <Badge className="bg-green-500">Available</Badge>;
+        return <Badge className="bg-green-100 text-green-800">Available</Badge>;
       case "maintenance":
-        return <Badge className="bg-yellow-500">Maintenance</Badge>;
+        return <Badge className="bg-yellow-100 text-yellow-800">In Maintenance</Badge>;
       case "unavailable":
-        return <Badge className="bg-red-500">Unavailable</Badge>;
+        return <Badge className="bg-red-100 text-red-800">Unavailable</Badge>;
       default:
-        return null;
+        return <Badge>{status}</Badge>;
     }
   };
 
   return (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0">
-          <CardTitle className="text-xl">Machines Management</CardTitle>
-          <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-            <DialogTrigger asChild>
-              <Button onClick={() => { resetForm(); setIsAddDialogOpen(true); }}>
-                <Plus className="mr-2 h-4 w-4" />
-                Add Machine
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-h-[90vh]">
-              <ScrollArea className="max-h-[80vh] pr-4">
-                <DialogHeader>
-                  <DialogTitle>Add New Machine</DialogTitle>
-                </DialogHeader>
-                <div className="grid gap-4 py-4">
-                  <div className="grid grid-cols-4 items-center gap-4">
-                    <Label htmlFor="name" className="text-right">Machine Name</Label>
-                    <Input
-                      id="name"
-                      name="name"
-                      className="col-span-3"
-                      value={currentMachine.name}
-                      onChange={handleInputChange}
-                    />
-                  </div>
-                  <div className="grid grid-cols-4 items-center gap-4">
-                    <Label htmlFor="model" className="text-right">Model</Label>
-                    <Input
-                      id="model"
-                      name="model"
-                      className="col-span-3"
-                      value={currentMachine.model}
-                      onChange={handleInputChange}
-                    />
-                  </div>
-                  <div className="grid grid-cols-4 items-center gap-4">
-                    <Label htmlFor="status" className="text-right">Status</Label>
-                    <Select 
-                      value={currentMachine.status} 
-                      onValueChange={(value: "available" | "maintenance" | "unavailable") => handleStatusChange(value)}
-                    >
-                      <SelectTrigger className="col-span-3">
-                        <SelectValue placeholder="Select status" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="available">Available</SelectItem>
-                        <SelectItem value="maintenance">Maintenance</SelectItem>
-                        <SelectItem value="unavailable">Unavailable</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-                <DialogFooter>
-                  <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>Cancel</Button>
-                  <Button onClick={handleAddMachine}>Save Machine</Button>
-                </DialogFooter>
-              </ScrollArea>
-            </DialogContent>
-          </Dialog>
-        </CardHeader>
-        <CardContent>
-          {loading ? (
-            <div className="text-center py-4">Loading machines data...</div>
-          ) : machines.length === 0 ? (
-            <div className="text-center py-4 flex flex-col items-center gap-2">
-              <AlertCircle className="h-8 w-8 text-muted-foreground" />
-              <p>No machines found</p>
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
+    <div>
+      <div className="flex justify-between items-center mb-4">
+        <h2 className="text-lg font-semibold">Machines</h2>
+        <Button onClick={() => setIsNewMachineDialogOpen(true)} size="sm">
+          <PlusIcon className="w-4 h-4 mr-2" />
+          Add Machine
+        </Button>
+      </div>
+
+      {loading ? (
+        <div className="text-center py-4">Loading...</div>
+      ) : (
+        <div className="bg-white rounded-md shadow overflow-hidden">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Model</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {machines.length === 0 ? (
                 <TableRow>
-                  <TableHead>Machine Name</TableHead>
-                  <TableHead>Model</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Actions</TableHead>
+                  <TableCell colSpan={4} className="text-center py-10">
+                    No machines found
+                  </TableCell>
                 </TableRow>
-              </TableHeader>
-              <TableBody>
-                {machines.map((machine) => (
+              ) : (
+                machines.map((machine) => (
                   <TableRow key={machine.id}>
-                    <TableCell>{machine.name}</TableCell>
-                    <TableCell>{machine.model}</TableCell>
+                    <TableCell className="font-medium">{machine.name}</TableCell>
+                    <TableCell>{machine.model || "—"}</TableCell>
                     <TableCell>{getStatusBadge(machine.status)}</TableCell>
-                    <TableCell>
-                      <div className="flex space-x-2">
-                        <Button variant="outline" size="sm" onClick={() => openEditDialog(machine)}>
-                          <Pencil className="h-4 w-4" />
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-2">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => {
+                            setEditMachine(machine);
+                            setIsEditMachineDialogOpen(true);
+                          }}
+                        >
+                          <Pencil className="w-4 h-4" />
                         </Button>
-                        <Button variant="outline" size="sm" onClick={() => openDeleteDialog(machine)}>
-                          <Trash2 className="h-4 w-4" />
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleDeleteMachine(machine.id)}
+                        >
+                          <Trash className="w-4 h-4" />
                         </Button>
                       </div>
                     </TableCell>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      )}
 
-      {/* Edit Dialog */}
-      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-        <DialogContent className="max-h-[90vh]">
-          <ScrollArea className="max-h-[80vh] pr-4">
+      {/* Add New Machine Dialog */}
+      <Dialog open={isNewMachineDialogOpen} onOpenChange={setIsNewMachineDialogOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <ScrollArea className="max-h-[80vh]">
             <DialogHeader>
-              <DialogTitle>Edit Machine</DialogTitle>
+              <DialogTitle>Add New Machine</DialogTitle>
+              <DialogDescription>Enter machine details below.</DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
               <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="edit-name" className="text-right">Machine Name</Label>
+                <Label htmlFor="name" className="text-right">
+                  Name
+                </Label>
                 <Input
-                  id="edit-name"
-                  name="name"
+                  id="name"
+                  value={newMachine.name}
+                  onChange={(e) => setNewMachine({...newMachine, name: e.target.value})}
                   className="col-span-3"
-                  value={currentMachine.name}
-                  onChange={handleInputChange}
                 />
               </div>
               <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="edit-model" className="text-right">Model</Label>
+                <Label htmlFor="model" className="text-right">
+                  Model
+                </Label>
                 <Input
-                  id="edit-model"
-                  name="model"
+                  id="model"
+                  value={newMachine.model || ""}
+                  onChange={(e) => setNewMachine({...newMachine, model: e.target.value})}
                   className="col-span-3"
-                  value={currentMachine.model}
-                  onChange={handleInputChange}
                 />
               </div>
               <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="edit-status" className="text-right">Status</Label>
-                <Select 
-                  value={currentMachine.status} 
-                  onValueChange={(value: "available" | "maintenance" | "unavailable") => handleStatusChange(value)}
+                <Label htmlFor="status" className="text-right">
+                  Status
+                </Label>
+                <Select
+                  value={newMachine.status}
+                  onValueChange={(value: "available" | "maintenance" | "unavailable") => 
+                    setNewMachine({...newMachine, status: value})
+                  }
                 >
                   <SelectTrigger className="col-span-3">
                     <SelectValue placeholder="Select status" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="available">Available</SelectItem>
-                    <SelectItem value="maintenance">Maintenance</SelectItem>
+                    <SelectItem value="maintenance">In Maintenance</SelectItem>
                     <SelectItem value="unavailable">Unavailable</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>Cancel</Button>
-              <Button onClick={handleEditMachine}>Update Machine</Button>
+              <Button variant="outline" onClick={() => setIsNewMachineDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" onClick={handleAddMachine}>
+                Add Machine
+              </Button>
             </DialogFooter>
           </ScrollArea>
         </DialogContent>
       </Dialog>
 
-      {/* Delete Dialog */}
-      <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete Machine</DialogTitle>
-          </DialogHeader>
-          <p className="py-4">
-            Are you sure you want to delete <strong>{currentMachine.name}</strong>? This action cannot be undone.
-          </p>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)}>Cancel</Button>
-            <Button variant="destructive" onClick={handleDeleteMachine}>Delete</Button>
-          </DialogFooter>
+      {/* Edit Machine Dialog */}
+      <Dialog open={isEditMachineDialogOpen} onOpenChange={setIsEditMachineDialogOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <ScrollArea className="max-h-[80vh]">
+            <DialogHeader>
+              <DialogTitle>Edit Machine</DialogTitle>
+              <DialogDescription>Update machine details below.</DialogDescription>
+            </DialogHeader>
+            {editMachine && (
+              <div className="grid gap-4 py-4">
+                <div className="grid grid-cols-4 items-center gap-4">
+                  <Label htmlFor="edit_name" className="text-right">
+                    Name
+                  </Label>
+                  <Input
+                    id="edit_name"
+                    value={editMachine.name}
+                    onChange={(e) => setEditMachine({...editMachine, name: e.target.value})}
+                    className="col-span-3"
+                  />
+                </div>
+                <div className="grid grid-cols-4 items-center gap-4">
+                  <Label htmlFor="edit_model" className="text-right">
+                    Model
+                  </Label>
+                  <Input
+                    id="edit_model"
+                    value={editMachine.model || ""}
+                    onChange={(e) => setEditMachine({...editMachine, model: e.target.value})}
+                    className="col-span-3"
+                  />
+                </div>
+                <div className="grid grid-cols-4 items-center gap-4">
+                  <Label htmlFor="edit_status" className="text-right">
+                    Status
+                  </Label>
+                  <Select
+                    value={editMachine.status}
+                    onValueChange={(value: "available" | "maintenance" | "unavailable") => 
+                      setEditMachine({...editMachine, status: value})
+                    }
+                  >
+                    <SelectTrigger className="col-span-3">
+                      <SelectValue placeholder="Select status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="available">Available</SelectItem>
+                      <SelectItem value="maintenance">In Maintenance</SelectItem>
+                      <SelectItem value="unavailable">Unavailable</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            )}
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setIsEditMachineDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" onClick={handleUpdateMachine}>
+                Save Changes
+              </Button>
+            </DialogFooter>
+          </ScrollArea>
         </DialogContent>
       </Dialog>
     </div>
   );
 };
-
-export default MachinesTab;

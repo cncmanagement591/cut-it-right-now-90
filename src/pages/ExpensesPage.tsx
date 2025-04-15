@@ -2,59 +2,75 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
-import { Plus, Pencil, Trash2, AlertCircle } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { PlusCircle, Calendar as CalendarIcon } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/components/ui/use-toast";
+import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, subMonths, parseISO } from "date-fns";
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 
 interface Expense {
   id: number;
   type: string;
-  description: string;
+  description: string | null;
   amount: number;
   expense_date: string;
-  supplier_id?: number;
-  created_at: string;
-  updated_at: string;
+  created_at: string | null;
+  updated_at: string | null;
 }
 
 interface Supplier {
   id: number;
   name: string;
-  contact_info: string;
-  outstanding_payment: number;
-  created_at: string;
-  updated_at: string;
+  contact_info: string | null;
+  outstanding_payment: number | null;
+  created_at: string | null;
+  updated_at: string | null;
 }
 
 const ExpensesPage = () => {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
-  const [activeTab, setActiveTab] = useState("expenses");
-  const [isAddExpenseOpen, setIsAddExpenseOpen] = useState(false);
-  const [isEditExpenseOpen, setIsEditExpenseOpen] = useState(false);
-  const [isDeleteExpenseOpen, setIsDeleteExpenseOpen] = useState(false);
-  const [isAddSupplierOpen, setIsAddSupplierOpen] = useState(false);
-  const [isEditSupplierOpen, setIsEditSupplierOpen] = useState(false);
-  const [isDeleteSupplierOpen, setIsDeleteSupplierOpen] = useState(false);
+  const [isNewExpenseDialogOpen, setIsNewExpenseDialogOpen] = useState(false);
+  const [isNewSupplierDialogOpen, setIsNewSupplierDialogOpen] = useState(false);
+  const [isEditExpenseDialogOpen, setIsEditExpenseDialogOpen] = useState(false);
+  const [isEditSupplierDialogOpen, setIsEditSupplierDialogOpen] = useState(false);
+  const [editExpense, setEditExpense] = useState<Expense | null>(null);
+  const [editSupplier, setEditSupplier] = useState<Supplier | null>(null);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState("expenses");
   const { toast } = useToast();
+  const [dateFilter, setDateFilter] = useState<"all" | "week" | "month" | "3months" | "custom">("month");
+  const [startDate, setStartDate] = useState<Date>(startOfMonth(new Date()));
+  const [endDate, setEndDate] = useState<Date>(endOfMonth(new Date()));
+  const [dateRange, setDateRange] = useState<{ from: Date; to?: Date }>({
+    from: startOfMonth(new Date()),
+    to: endOfMonth(new Date())
+  });
   
-  const [currentExpense, setCurrentExpense] = useState<Omit<Expense, 'id' | 'created_at' | 'updated_at'>>({
+  const [newExpense, setNewExpense] = useState<Omit<Expense, 'id' | 'created_at' | 'updated_at'>>({
     type: "bill",
     description: "",
     amount: 0,
-    expense_date: new Date().toISOString().split('T')[0],
+    expense_date: format(new Date(), 'yyyy-MM-dd')
   });
 
-  const [currentSupplier, setCurrentSupplier] = useState<Omit<Supplier, 'id' | 'created_at' | 'updated_at'>>({
+  const [newSupplier, setNewSupplier] = useState<Omit<Supplier, 'id' | 'created_at' | 'updated_at'>>({
     name: "",
     contact_info: "",
     outstanding_payment: 0
@@ -63,15 +79,51 @@ const ExpensesPage = () => {
   useEffect(() => {
     fetchExpenses();
     fetchSuppliers();
-  }, []);
+  }, [dateFilter, startDate, endDate]);
+
+  useEffect(() => {
+    // Update date range when filter changes
+    switch(dateFilter) {
+      case "week":
+        setStartDate(startOfWeek(new Date()));
+        setEndDate(endOfWeek(new Date()));
+        break;
+      case "month":
+        setStartDate(startOfMonth(new Date()));
+        setEndDate(endOfMonth(new Date()));
+        break;
+      case "3months":
+        setStartDate(startOfMonth(subMonths(new Date(), 2)));
+        setEndDate(endOfMonth(new Date()));
+        break;
+      case "custom":
+        setStartDate(dateRange.from);
+        setEndDate(dateRange.to || new Date());
+        break;
+      case "all":
+      default:
+        // No date filtering
+        break;
+    }
+  }, [dateFilter, dateRange]);
 
   async function fetchExpenses() {
     try {
       setLoading(true);
-      const { data, error } = await supabase
+      
+      let query = supabase
         .from('expenses')
         .select('*')
         .order('expense_date', { ascending: false });
+      
+      // Apply date filtering if not "all"
+      if (dateFilter !== "all") {
+        query = query
+          .gte('expense_date', format(startDate, 'yyyy-MM-dd'))
+          .lte('expense_date', format(endDate, 'yyyy-MM-dd'));
+      }
+      
+      const { data, error } = await query;
       
       if (error) {
         throw error;
@@ -112,57 +164,28 @@ const ExpensesPage = () => {
     }
   }
 
-  const handleExpenseInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-    const { name, value } = e.target;
-    setCurrentExpense(prev => ({
-      ...prev,
-      [name]: name === 'amount' ? parseFloat(value) || 0 : value
-    }));
-  };
-
-  const handleSupplierInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    const { name, value } = e.target;
-    setCurrentSupplier(prev => ({
-      ...prev,
-      [name]: name === 'outstanding_payment' ? parseFloat(value) || 0 : value
-    }));
-  };
-
   const handleAddExpense = async () => {
     try {
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from('expenses')
-        .insert([currentExpense])
-        .select();
+        .insert([newExpense]);
       
       if (error) throw error;
       
-      // If this is a supplier payment, update the supplier's outstanding payment
-      if (currentExpense.type === 'supplier_payment' && currentExpense.supplier_id) {
-        const supplier = suppliers.find(s => s.id === currentExpense.supplier_id);
-        if (supplier) {
-          const newOutstanding = Math.max(0, supplier.outstanding_payment - currentExpense.amount);
-          await supabase
-            .from('suppliers')
-            .update({ outstanding_payment: newOutstanding })
-            .eq('id', currentExpense.supplier_id);
-            
-          // Update the suppliers list in state
-          setSuppliers(suppliers.map(s => 
-            s.id === currentExpense.supplier_id 
-              ? { ...s, outstanding_payment: newOutstanding } 
-              : s
-          ));
-        }
-      }
-      
-      setExpenses([data[0], ...expenses]);
-      resetExpenseForm();
-      setIsAddExpenseOpen(false);
       toast({
         title: "Success",
         description: "Expense added successfully",
       });
+      
+      setNewExpense({
+        type: "bill",
+        description: "",
+        amount: 0,
+        expense_date: format(new Date(), 'yyyy-MM-dd')
+      });
+      
+      setIsNewExpenseDialogOpen(false);
+      fetchExpenses();
     } catch (error) {
       console.error('Error adding expense:', error);
       toast({
@@ -173,31 +196,30 @@ const ExpensesPage = () => {
     }
   };
 
-  const handleEditExpense = async () => {
+  const handleUpdateExpense = async () => {
+    if (!editExpense) return;
+    
     try {
-      const id = currentExpense.id;
-      if (!id) return;
-      
       const { error } = await supabase
         .from('expenses')
-        .update({ 
-          type: currentExpense.type,
-          description: currentExpense.description,
-          amount: currentExpense.amount,
-          expense_date: currentExpense.expense_date,
-          supplier_id: currentExpense.supplier_id
+        .update({
+          type: editExpense.type,
+          description: editExpense.description,
+          amount: editExpense.amount,
+          expense_date: editExpense.expense_date
         })
-        .eq('id', id);
+        .eq('id', editExpense.id);
       
       if (error) throw error;
       
-      setExpenses(expenses.map(e => e.id === id ? { ...e, ...currentExpense } : e));
-      resetExpenseForm();
-      setIsEditExpenseOpen(false);
       toast({
         title: "Success",
         description: "Expense updated successfully",
       });
+      
+      setEditExpense(null);
+      setIsEditExpenseDialogOpen(false);
+      fetchExpenses();
     } catch (error) {
       console.error('Error updating expense:', error);
       toast({
@@ -208,11 +230,8 @@ const ExpensesPage = () => {
     }
   };
 
-  const handleDeleteExpense = async () => {
+  const handleDeleteExpense = async (id: number) => {
     try {
-      const id = currentExpense.id;
-      if (!id) return;
-      
       const { error } = await supabase
         .from('expenses')
         .delete()
@@ -220,13 +239,12 @@ const ExpensesPage = () => {
       
       if (error) throw error;
       
-      setExpenses(expenses.filter(e => e.id !== id));
-      resetExpenseForm();
-      setIsDeleteExpenseOpen(false);
       toast({
         title: "Success",
         description: "Expense deleted successfully",
       });
+      
+      fetchExpenses();
     } catch (error) {
       console.error('Error deleting expense:', error);
       toast({
@@ -239,20 +257,25 @@ const ExpensesPage = () => {
 
   const handleAddSupplier = async () => {
     try {
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from('suppliers')
-        .insert([currentSupplier])
-        .select();
+        .insert([newSupplier]);
       
       if (error) throw error;
       
-      setSuppliers([...suppliers, data[0]]);
-      resetSupplierForm();
-      setIsAddSupplierOpen(false);
       toast({
         title: "Success",
         description: "Supplier added successfully",
       });
+      
+      setNewSupplier({
+        name: "",
+        contact_info: "",
+        outstanding_payment: 0
+      });
+      
+      setIsNewSupplierDialogOpen(false);
+      fetchSuppliers();
     } catch (error) {
       console.error('Error adding supplier:', error);
       toast({
@@ -263,29 +286,29 @@ const ExpensesPage = () => {
     }
   };
 
-  const handleEditSupplier = async () => {
+  const handleUpdateSupplier = async () => {
+    if (!editSupplier) return;
+    
     try {
-      const id = currentSupplier.id;
-      if (!id) return;
-      
       const { error } = await supabase
         .from('suppliers')
-        .update({ 
-          name: currentSupplier.name,
-          contact_info: currentSupplier.contact_info,
-          outstanding_payment: currentSupplier.outstanding_payment
+        .update({
+          name: editSupplier.name,
+          contact_info: editSupplier.contact_info,
+          outstanding_payment: editSupplier.outstanding_payment
         })
-        .eq('id', id);
+        .eq('id', editSupplier.id);
       
       if (error) throw error;
       
-      setSuppliers(suppliers.map(s => s.id === id ? { ...s, ...currentSupplier } : s));
-      resetSupplierForm();
-      setIsEditSupplierOpen(false);
       toast({
         title: "Success",
         description: "Supplier updated successfully",
       });
+      
+      setEditSupplier(null);
+      setIsEditSupplierDialogOpen(false);
+      fetchSuppliers();
     } catch (error) {
       console.error('Error updating supplier:', error);
       toast({
@@ -296,11 +319,8 @@ const ExpensesPage = () => {
     }
   };
 
-  const handleDeleteSupplier = async () => {
+  const handleDeleteSupplier = async (id: number) => {
     try {
-      const id = currentSupplier.id;
-      if (!id) return;
-      
       const { error } = await supabase
         .from('suppliers')
         .delete()
@@ -308,13 +328,12 @@ const ExpensesPage = () => {
       
       if (error) throw error;
       
-      setSuppliers(suppliers.filter(s => s.id !== id));
-      resetSupplierForm();
-      setIsDeleteSupplierOpen(false);
       toast({
         title: "Success",
         description: "Supplier deleted successfully",
       });
+      
+      fetchSuppliers();
     } catch (error) {
       console.error('Error deleting supplier:', error);
       toast({
@@ -325,323 +344,335 @@ const ExpensesPage = () => {
     }
   };
 
-  const resetExpenseForm = () => {
-    setCurrentExpense({
-      type: "bill",
-      description: "",
-      amount: 0,
-      expense_date: new Date().toISOString().split('T')[0],
-      supplier_id: undefined
-    });
+  const formatDate = (dateString: string) => {
+    const date = parseISO(dateString);
+    return format(date, 'dd MMM yyyy');
+  };
+  
+  const getTotalExpenses = () => {
+    return expenses.reduce((sum, expense) => sum + expense.amount, 0);
   };
 
-  const resetSupplierForm = () => {
-    setCurrentSupplier({
-      name: "",
-      contact_info: "",
-      outstanding_payment: 0
-    });
-  };
-
-  const openEditExpenseDialog = (expense: Expense) => {
-    setCurrentExpense(expense);
-    setIsEditExpenseOpen(true);
-  };
-
-  const openDeleteExpenseDialog = (expense: Expense) => {
-    setCurrentExpense(expense);
-    setIsDeleteExpenseOpen(true);
-  };
-
-  const openEditSupplierDialog = (supplier: Supplier) => {
-    setCurrentSupplier(supplier);
-    setIsEditSupplierOpen(true);
-  };
-
-  const openDeleteSupplierDialog = (supplier: Supplier) => {
-    setCurrentSupplier(supplier);
-    setIsDeleteSupplierOpen(true);
+  const getTotalOutstandingPayments = () => {
+    return suppliers.reduce((sum, supplier) => sum + (supplier.outstanding_payment || 0), 0);
   };
 
   return (
     <div className="p-8">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-800">Expenses & Suppliers</h1>
-        <p className="text-gray-600">Manage expenses, bills, and supplier payments.</p>
+        <h1 className="text-2xl font-bold text-gray-800">Financial Management</h1>
+        <p className="text-gray-600">Track expenses and manage supplier accounts.</p>
       </div>
 
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid grid-cols-2 w-full max-w-md mb-6">
-          <TabsTrigger value="expenses">Expenses</TabsTrigger>
-          <TabsTrigger value="suppliers">Suppliers</TabsTrigger>
-        </TabsList>
+      <div className="mb-8 grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-lg">Total Expenses</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold">₹{getTotalExpenses().toLocaleString()}</div>
+            <p className="text-muted-foreground">
+              {dateFilter !== "all" ? 
+                `${format(startDate, 'dd MMM yyyy')} - ${format(endDate, 'dd MMM yyyy')}` :
+                "All time"
+              }
+            </p>
+          </CardContent>
+        </Card>
         
-        <TabsContent value="expenses" className="w-full">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0">
-              <CardTitle className="text-xl">Expense Management</CardTitle>
-              <Dialog open={isAddExpenseOpen} onOpenChange={setIsAddExpenseOpen}>
-                <DialogTrigger asChild>
-                  <Button onClick={() => { resetExpenseForm(); setIsAddExpenseOpen(true); }}>
-                    <Plus className="mr-2 h-4 w-4" />
-                    Add Expense
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="max-h-[90vh]">
-                  <ScrollArea className="max-h-[80vh] pr-4">
-                    <DialogHeader>
-                      <DialogTitle>Add New Expense</DialogTitle>
-                    </DialogHeader>
-                    <div className="grid gap-4 py-4">
-                      <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="type" className="text-right">Type</Label>
-                        <Select 
-                          name="type"
-                          value={currentExpense.type} 
-                          onValueChange={(value) => setCurrentExpense({...currentExpense, type: value})}
-                        >
-                          <SelectTrigger className="col-span-3">
-                            <SelectValue placeholder="Select type" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="bill">Bill</SelectItem>
-                            <SelectItem value="material_purchase">Material Purchase</SelectItem>
-                            <SelectItem value="supplier_payment">Supplier Payment</SelectItem>
-                            <SelectItem value="other">Other</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="description" className="text-right">Description</Label>
-                        <Textarea
-                          id="description"
-                          name="description"
-                          className="col-span-3"
-                          value={currentExpense.description}
-                          onChange={handleExpenseInputChange}
-                        />
-                      </div>
-                      <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="amount" className="text-right">Amount (₹)</Label>
-                        <Input
-                          id="amount"
-                          name="amount"
-                          type="number"
-                          className="col-span-3"
-                          value={currentExpense.amount || ''}
-                          onChange={handleExpenseInputChange}
-                        />
-                      </div>
-                      <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="expense_date" className="text-right">Date</Label>
-                        <Input
-                          id="expense_date"
-                          name="expense_date"
-                          type="date"
-                          className="col-span-3"
-                          value={currentExpense.expense_date}
-                          onChange={handleExpenseInputChange}
-                        />
-                      </div>
-                      {(currentExpense.type === "material_purchase" || currentExpense.type === "supplier_payment") && (
-                        <div className="grid grid-cols-4 items-center gap-4">
-                          <Label htmlFor="supplier_id" className="text-right">Supplier</Label>
-                          <Select 
-                            name="supplier_id"
-                            value={currentExpense.supplier_id?.toString() || ''} 
-                            onValueChange={(value) => setCurrentExpense({...currentExpense, supplier_id: value ? parseInt(value) : undefined})}
-                          >
-                            <SelectTrigger className="col-span-3">
-                              <SelectValue placeholder="Select supplier" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {suppliers.map(supplier => (
-                                <SelectItem key={supplier.id} value={supplier.id.toString()}>
-                                  {supplier.name} {supplier.outstanding_payment > 0 ? `(₹${supplier.outstanding_payment} due)` : ''}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-lg">Outstanding Supplier Payments</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold">₹{getTotalOutstandingPayments().toLocaleString()}</div>
+            <p className="text-muted-foreground">Total pending amount</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Tabs defaultValue="expenses" value={activeTab} onValueChange={setActiveTab}>
+        <div className="flex justify-between items-center mb-6">
+          <TabsList>
+            <TabsTrigger value="expenses">Expenses</TabsTrigger>
+            <TabsTrigger value="suppliers">Suppliers</TabsTrigger>
+          </TabsList>
+          
+          {activeTab === "expenses" && (
+            <div className="flex gap-2 items-center">
+              <Select value={dateFilter} onValueChange={(value: "all" | "week" | "month" | "3months" | "custom") => setDateFilter(value)}>
+                <SelectTrigger className="w-[180px]">
+                  <SelectValue placeholder="Filter by date" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Time</SelectItem>
+                  <SelectItem value="week">This Week</SelectItem>
+                  <SelectItem value="month">This Month</SelectItem>
+                  <SelectItem value="3months">Last 3 Months</SelectItem>
+                  <SelectItem value="custom">Custom Range</SelectItem>
+                </SelectContent>
+              </Select>
+              
+              {dateFilter === "custom" && (
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="ml-auto">
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {dateRange?.from ? (
+                        dateRange.to ? (
+                          <>
+                            {format(dateRange.from, "LLL dd, y")} -{" "}
+                            {format(dateRange.to, "LLL dd, y")}
+                          </>
+                        ) : (
+                          format(dateRange.from, "LLL dd, y")
+                        )
+                      ) : (
+                        <span>Pick a date</span>
                       )}
-                    </div>
-                    <DialogFooter>
-                      <Button variant="outline" onClick={() => setIsAddExpenseOpen(false)}>Cancel</Button>
-                      <Button onClick={handleAddExpense}>Save Expense</Button>
-                    </DialogFooter>
-                  </ScrollArea>
-                </DialogContent>
-              </Dialog>
-            </CardHeader>
-            <CardContent>
-              {loading ? (
-                <div className="text-center py-4">Loading expenses data...</div>
-              ) : expenses.length === 0 ? (
-                <div className="text-center py-4 flex flex-col items-center gap-2">
-                  <AlertCircle className="h-8 w-8 text-muted-foreground" />
-                  <p>No expenses found</p>
-                </div>
-              ) : (
-                <Table>
-                  <TableHeader>
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="end">
+                    <Calendar
+                      initialFocus
+                      mode="range"
+                      defaultMonth={dateRange?.from}
+                      selected={dateRange}
+                      onSelect={(range) => {
+                        if (range?.from && range?.to) {
+                          setDateRange(range);
+                          setDateFilter("custom");
+                        }
+                      }}
+                      numberOfMonths={2}
+                    />
+                  </PopoverContent>
+                </Popover>
+              )}
+              
+              <Button onClick={() => setIsNewExpenseDialogOpen(true)}>
+                <PlusCircle className="mr-2 h-4 w-4" />
+                New Expense
+              </Button>
+            </div>
+          )}
+          
+          {activeTab === "suppliers" && (
+            <Button onClick={() => setIsNewSupplierDialogOpen(true)}>
+              <PlusCircle className="mr-2 h-4 w-4" />
+              New Supplier
+            </Button>
+          )}
+        </div>
+
+        <TabsContent value="expenses">
+          {loading ? (
+            <div className="text-center py-4">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+              <p className="mt-2">Loading expenses...</p>
+            </div>
+          ) : (
+            <div className="bg-white rounded-md shadow">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Description</TableHead>
+                    <TableHead className="text-right">Amount (₹)</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {expenses.length === 0 ? (
                     <TableRow>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Description</TableHead>
-                      <TableHead>Amount (₹)</TableHead>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Supplier</TableHead>
-                      <TableHead>Actions</TableHead>
+                      <TableCell colSpan={5} className="text-center py-10">
+                        No expenses found
+                      </TableCell>
                     </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {expenses.map((expense) => (
+                  ) : (
+                    expenses.map((expense) => (
                       <TableRow key={expense.id}>
-                        <TableCell className="capitalize">{expense.type.replace('_', ' ')}</TableCell>
+                        <TableCell>{formatDate(expense.expense_date)}</TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className="capitalize">
+                            {expense.type}
+                          </Badge>
+                        </TableCell>
                         <TableCell>{expense.description}</TableCell>
-                        <TableCell>₹ {expense.amount.toLocaleString()}</TableCell>
-                        <TableCell>{new Date(expense.expense_date).toLocaleDateString()}</TableCell>
-                        <TableCell>
-                          {expense.supplier_id ? 
-                            suppliers.find(s => s.id === expense.supplier_id)?.name || 'Unknown' : 
-                            'N/A'
-                          }
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex space-x-2">
-                            <Button variant="outline" size="sm" onClick={() => openEditExpenseDialog(expense)}>
-                              <Pencil className="h-4 w-4" />
+                        <TableCell className="text-right font-medium">₹{expense.amount.toLocaleString()}</TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-2">
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              onClick={() => {
+                                setEditExpense(expense);
+                                setIsEditExpenseDialogOpen(true);
+                              }}
+                            >
+                              Edit
                             </Button>
-                            <Button variant="outline" size="sm" onClick={() => openDeleteExpenseDialog(expense)}>
-                              <Trash2 className="h-4 w-4" />
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              onClick={() => handleDeleteExpense(expense.id)}
+                            >
+                              Delete
                             </Button>
                           </div>
                         </TableCell>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
-            </CardContent>
-          </Card>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          )}
         </TabsContent>
-        
-        <TabsContent value="suppliers" className="w-full">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0">
-              <CardTitle className="text-xl">Supplier Management</CardTitle>
-              <Dialog open={isAddSupplierOpen} onOpenChange={setIsAddSupplierOpen}>
-                <DialogTrigger asChild>
-                  <Button onClick={() => { resetSupplierForm(); setIsAddSupplierOpen(true); }}>
-                    <Plus className="mr-2 h-4 w-4" />
-                    Add Supplier
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="max-h-[90vh]">
-                  <ScrollArea className="max-h-[80vh] pr-4">
-                    <DialogHeader>
-                      <DialogTitle>Add New Supplier</DialogTitle>
-                    </DialogHeader>
-                    <div className="grid gap-4 py-4">
-                      <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="name" className="text-right">Name</Label>
-                        <Input
-                          id="name"
-                          name="name"
-                          className="col-span-3"
-                          value={currentSupplier.name}
-                          onChange={handleSupplierInputChange}
-                        />
-                      </div>
-                      <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="contact_info" className="text-right">Contact Info</Label>
-                        <Input
-                          id="contact_info"
-                          name="contact_info"
-                          className="col-span-3"
-                          value={currentSupplier.contact_info}
-                          onChange={handleSupplierInputChange}
-                        />
-                      </div>
-                      <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="outstanding_payment" className="text-right">Outstanding Payment (₹)</Label>
-                        <Input
-                          id="outstanding_payment"
-                          name="outstanding_payment"
-                          type="number"
-                          className="col-span-3"
-                          value={currentSupplier.outstanding_payment || ''}
-                          onChange={handleSupplierInputChange}
-                        />
-                      </div>
-                    </div>
-                    <DialogFooter>
-                      <Button variant="outline" onClick={() => setIsAddSupplierOpen(false)}>Cancel</Button>
-                      <Button onClick={handleAddSupplier}>Save Supplier</Button>
-                    </DialogFooter>
-                  </ScrollArea>
-                </DialogContent>
-              </Dialog>
-            </CardHeader>
-            <CardContent>
-              {loading ? (
-                <div className="text-center py-4">Loading suppliers data...</div>
-              ) : suppliers.length === 0 ? (
-                <div className="text-center py-4 flex flex-col items-center gap-2">
-                  <AlertCircle className="h-8 w-8 text-muted-foreground" />
-                  <p>No suppliers found</p>
-                </div>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Contact Info</TableHead>
-                      <TableHead>Outstanding Payment (₹)</TableHead>
-                      <TableHead>Actions</TableHead>
+
+        <TabsContent value="suppliers">
+          <div className="bg-white rounded-md shadow">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Contact Information</TableHead>
+                  <TableHead className="text-right">Outstanding Payment (₹)</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {suppliers.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={4} className="text-center py-10">
+                      No suppliers found
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  suppliers.map((supplier) => (
+                    <TableRow key={supplier.id}>
+                      <TableCell className="font-medium">{supplier.name}</TableCell>
+                      <TableCell>{supplier.contact_info || "—"}</TableCell>
+                      <TableCell className="text-right">
+                        <Badge variant={supplier.outstanding_payment && supplier.outstanding_payment > 0 ? "destructive" : "outline"}>
+                          ₹{(supplier.outstanding_payment || 0).toLocaleString()}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-2">
+                          <Button 
+                            variant="outline" 
+                            size="sm"
+                            onClick={() => {
+                              setEditSupplier(supplier);
+                              setIsEditSupplierDialogOpen(true);
+                            }}
+                          >
+                            Edit
+                          </Button>
+                          <Button 
+                            variant="outline" 
+                            size="sm"
+                            onClick={() => handleDeleteSupplier(supplier.id)}
+                          >
+                            Delete
+                          </Button>
+                        </div>
+                      </TableCell>
                     </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {suppliers.map((supplier) => (
-                      <TableRow key={supplier.id}>
-                        <TableCell className="font-medium">{supplier.name}</TableCell>
-                        <TableCell>{supplier.contact_info}</TableCell>
-                        <TableCell className={supplier.outstanding_payment > 0 ? "text-red-500 font-bold" : ""}>
-                          ₹ {supplier.outstanding_payment.toLocaleString()}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex space-x-2">
-                            <Button variant="outline" size="sm" onClick={() => openEditSupplierDialog(supplier)}>
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                            <Button variant="outline" size="sm" onClick={() => openDeleteSupplierDialog(supplier)}>
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
-            </CardContent>
-          </Card>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
         </TabsContent>
       </Tabs>
 
+      {/* New Expense Dialog */}
+      <Dialog open={isNewExpenseDialogOpen} onOpenChange={setIsNewExpenseDialogOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Add New Expense</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="type" className="text-right">
+                Type
+              </Label>
+              <Select
+                value={newExpense.type}
+                onValueChange={(value) => setNewExpense({...newExpense, type: value})}
+              >
+                <SelectTrigger className="col-span-3">
+                  <SelectValue placeholder="Select type" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="bill">Bill</SelectItem>
+                  <SelectItem value="material_purchase">Material Purchase</SelectItem>
+                  <SelectItem value="supplier_payment">Supplier Payment</SelectItem>
+                  <SelectItem value="salary">Salary</SelectItem>
+                  <SelectItem value="other">Other</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="expense_date" className="text-right">
+                Date
+              </Label>
+              <Input
+                id="expense_date"
+                type="date"
+                value={newExpense.expense_date}
+                onChange={(e) => setNewExpense({...newExpense, expense_date: e.target.value})}
+                className="col-span-3"
+              />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="amount" className="text-right">
+                Amount
+              </Label>
+              <Input
+                id="amount"
+                type="number"
+                value={newExpense.amount}
+                onChange={(e) => setNewExpense({...newExpense, amount: parseFloat(e.target.value) || 0})}
+                className="col-span-3"
+              />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="description" className="text-right">
+                Description
+              </Label>
+              <Input
+                id="description"
+                value={newExpense.description || ''}
+                onChange={(e) => setNewExpense({...newExpense, description: e.target.value})}
+                className="col-span-3"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button type="submit" onClick={handleAddExpense}>Add Expense</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Edit Expense Dialog */}
-      <Dialog open={isEditExpenseOpen} onOpenChange={setIsEditExpenseOpen}>
-        <DialogContent className="max-h-[90vh]">
-          <ScrollArea className="max-h-[80vh] pr-4">
-            <DialogHeader>
-              <DialogTitle>Edit Expense</DialogTitle>
-            </DialogHeader>
+      <Dialog open={isEditExpenseDialogOpen} onOpenChange={setIsEditExpenseDialogOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Edit Expense</DialogTitle>
+          </DialogHeader>
+          {editExpense && (
             <div className="grid gap-4 py-4">
               <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="edit-type" className="text-right">Type</Label>
-                <Select 
-                  name="type"
-                  value={currentExpense.type} 
-                  onValueChange={(value) => setCurrentExpense({...currentExpense, type: value})}
+                <Label htmlFor="edit_type" className="text-right">
+                  Type
+                </Label>
+                <Select
+                  value={editExpense.type}
+                  onValueChange={(value) => setEditExpense({...editExpense, type: value})}
                 >
                   <SelectTrigger className="col-span-3">
                     <SelectValue placeholder="Select type" />
@@ -650,148 +681,148 @@ const ExpensesPage = () => {
                     <SelectItem value="bill">Bill</SelectItem>
                     <SelectItem value="material_purchase">Material Purchase</SelectItem>
                     <SelectItem value="supplier_payment">Supplier Payment</SelectItem>
+                    <SelectItem value="salary">Salary</SelectItem>
                     <SelectItem value="other">Other</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="edit-description" className="text-right">Description</Label>
-                <Textarea
-                  id="edit-description"
-                  name="description"
-                  className="col-span-3"
-                  value={currentExpense.description}
-                  onChange={handleExpenseInputChange}
-                />
-              </div>
-              <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="edit-amount" className="text-right">Amount (₹)</Label>
+                <Label htmlFor="edit_expense_date" className="text-right">
+                  Date
+                </Label>
                 <Input
-                  id="edit-amount"
-                  name="amount"
-                  type="number"
-                  className="col-span-3"
-                  value={currentExpense.amount || ''}
-                  onChange={handleExpenseInputChange}
-                />
-              </div>
-              <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="edit-expense_date" className="text-right">Date</Label>
-                <Input
-                  id="edit-expense_date"
-                  name="expense_date"
+                  id="edit_expense_date"
                   type="date"
+                  value={editExpense.expense_date}
+                  onChange={(e) => setEditExpense({...editExpense, expense_date: e.target.value})}
                   className="col-span-3"
-                  value={currentExpense.expense_date}
-                  onChange={handleExpenseInputChange}
                 />
               </div>
-              {(currentExpense.type === "material_purchase" || currentExpense.type === "supplier_payment") && (
-                <div className="grid grid-cols-4 items-center gap-4">
-                  <Label htmlFor="edit-supplier_id" className="text-right">Supplier</Label>
-                  <Select 
-                    name="supplier_id"
-                    value={currentExpense.supplier_id?.toString() || ''} 
-                    onValueChange={(value) => setCurrentExpense({...currentExpense, supplier_id: value ? parseInt(value) : undefined})}
-                  >
-                    <SelectTrigger className="col-span-3">
-                      <SelectValue placeholder="Select supplier" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {suppliers.map(supplier => (
-                        <SelectItem key={supplier.id} value={supplier.id.toString()}>
-                          {supplier.name} {supplier.outstanding_payment > 0 ? `(₹${supplier.outstanding_payment} due)` : ''}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="edit_amount" className="text-right">
+                  Amount
+                </Label>
+                <Input
+                  id="edit_amount"
+                  type="number"
+                  value={editExpense.amount}
+                  onChange={(e) => setEditExpense({...editExpense, amount: parseFloat(e.target.value) || 0})}
+                  className="col-span-3"
+                />
+              </div>
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="edit_description" className="text-right">
+                  Description
+                </Label>
+                <Input
+                  id="edit_description"
+                  value={editExpense.description || ''}
+                  onChange={(e) => setEditExpense({...editExpense, description: e.target.value})}
+                  className="col-span-3"
+                />
+              </div>
             </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setIsEditExpenseOpen(false)}>Cancel</Button>
-              <Button onClick={handleEditExpense}>Update Expense</Button>
-            </DialogFooter>
-          </ScrollArea>
+          )}
+          <DialogFooter>
+            <Button type="submit" onClick={handleUpdateExpense}>Update Expense</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Delete Expense Dialog */}
-      <Dialog open={isDeleteExpenseOpen} onOpenChange={setIsDeleteExpenseOpen}>
-        <DialogContent>
+      {/* New Supplier Dialog */}
+      <Dialog open={isNewSupplierDialogOpen} onOpenChange={setIsNewSupplierDialogOpen}>
+        <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
-            <DialogTitle>Delete Expense</DialogTitle>
+            <DialogTitle>Add New Supplier</DialogTitle>
           </DialogHeader>
-          <p className="py-4">
-            Are you sure you want to delete this expense? This action cannot be undone.
-          </p>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="name" className="text-right">
+                Name
+              </Label>
+              <Input
+                id="name"
+                value={newSupplier.name}
+                onChange={(e) => setNewSupplier({...newSupplier, name: e.target.value})}
+                className="col-span-3"
+              />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="contact_info" className="text-right">
+                Contact
+              </Label>
+              <Input
+                id="contact_info"
+                value={newSupplier.contact_info || ''}
+                onChange={(e) => setNewSupplier({...newSupplier, contact_info: e.target.value})}
+                className="col-span-3"
+              />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="outstanding_payment" className="text-right">
+                Outstanding
+              </Label>
+              <Input
+                id="outstanding_payment"
+                type="number"
+                value={newSupplier.outstanding_payment || 0}
+                onChange={(e) => setNewSupplier({...newSupplier, outstanding_payment: parseFloat(e.target.value) || 0})}
+                className="col-span-3"
+              />
+            </div>
+          </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsDeleteExpenseOpen(false)}>Cancel</Button>
-            <Button variant="destructive" onClick={handleDeleteExpense}>Delete</Button>
+            <Button type="submit" onClick={handleAddSupplier}>Add Supplier</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       {/* Edit Supplier Dialog */}
-      <Dialog open={isEditSupplierOpen} onOpenChange={setIsEditSupplierOpen}>
-        <DialogContent className="max-h-[90vh]">
-          <ScrollArea className="max-h-[80vh] pr-4">
-            <DialogHeader>
-              <DialogTitle>Edit Supplier</DialogTitle>
-            </DialogHeader>
+      <Dialog open={isEditSupplierDialogOpen} onOpenChange={setIsEditSupplierDialogOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Edit Supplier</DialogTitle>
+          </DialogHeader>
+          {editSupplier && (
             <div className="grid gap-4 py-4">
               <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="edit-supplier-name" className="text-right">Name</Label>
+                <Label htmlFor="edit_name" className="text-right">
+                  Name
+                </Label>
                 <Input
-                  id="edit-supplier-name"
-                  name="name"
+                  id="edit_name"
+                  value={editSupplier.name}
+                  onChange={(e) => setEditSupplier({...editSupplier, name: e.target.value})}
                   className="col-span-3"
-                  value={currentSupplier.name}
-                  onChange={handleSupplierInputChange}
                 />
               </div>
               <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="edit-supplier-contact_info" className="text-right">Contact Info</Label>
+                <Label htmlFor="edit_contact_info" className="text-right">
+                  Contact
+                </Label>
                 <Input
-                  id="edit-supplier-contact_info"
-                  name="contact_info"
+                  id="edit_contact_info"
+                  value={editSupplier.contact_info || ''}
+                  onChange={(e) => setEditSupplier({...editSupplier, contact_info: e.target.value})}
                   className="col-span-3"
-                  value={currentSupplier.contact_info}
-                  onChange={handleSupplierInputChange}
                 />
               </div>
               <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="edit-supplier-outstanding_payment" className="text-right">Outstanding Payment (₹)</Label>
+                <Label htmlFor="edit_outstanding_payment" className="text-right">
+                  Outstanding
+                </Label>
                 <Input
-                  id="edit-supplier-outstanding_payment"
-                  name="outstanding_payment"
+                  id="edit_outstanding_payment"
                   type="number"
+                  value={editSupplier.outstanding_payment || 0}
+                  onChange={(e) => setEditSupplier({...editSupplier, outstanding_payment: parseFloat(e.target.value) || 0})}
                   className="col-span-3"
-                  value={currentSupplier.outstanding_payment || ''}
-                  onChange={handleSupplierInputChange}
                 />
               </div>
             </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setIsEditSupplierOpen(false)}>Cancel</Button>
-              <Button onClick={handleEditSupplier}>Update Supplier</Button>
-            </DialogFooter>
-          </ScrollArea>
-        </DialogContent>
-      </Dialog>
-
-      {/* Delete Supplier Dialog */}
-      <Dialog open={isDeleteSupplierOpen} onOpenChange={setIsDeleteSupplierOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete Supplier</DialogTitle>
-          </DialogHeader>
-          <p className="py-4">
-            Are you sure you want to delete this supplier? This action cannot be undone.
-          </p>
+          )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsDeleteSupplierOpen(false)}>Cancel</Button>
-            <Button variant="destructive" onClick={handleDeleteSupplier}>Delete</Button>
+            <Button type="submit" onClick={handleUpdateSupplier}>Update Supplier</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

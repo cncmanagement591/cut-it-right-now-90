@@ -3,22 +3,31 @@ import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { OrderCard } from "@/components/orders/OrderCard";
 import { Badge } from "@/components/ui/badge";
-import { PlusCircle, AlertCircle } from "lucide-react";
+import { PlusCircle, AlertCircle, List, LayoutGrid } from "lucide-react";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/components/ui/use-toast";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 
 export interface Order {
   id: string;
   client_name: string;
-  phone: string;
-  location: string;
+  phone: string | null;
+  location: string | null;
   material_id: number | null;
   material_qty: number | null;
   service_id: number | null;
@@ -27,8 +36,8 @@ export interface Order {
   additional_charges: number | null;
   final_price: number | null;
   order_status: "lead" | "contacted" | "confirmed" | "progressing" | "completed" | "cancelled";
-  created_at: string;
-  updated_at: string;
+  created_at: string | null;
+  updated_at: string | null;
   // Frontend-only properties
   material_name?: string;
   service_name?: string;
@@ -41,7 +50,7 @@ export interface Payment {
   order_id: string;
   payment_mode: "cash" | "card" | "upi" | "credit";
   amount: number;
-  payment_date: string;
+  payment_date: string | null;
 }
 
 export interface Staff {
@@ -82,6 +91,7 @@ const OrdersPage = () => {
   const [staffList, setStaffList] = useState<Staff[]>([]);
   const [isNewOrderDialogOpen, setIsNewOrderDialogOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [viewMode, setViewMode] = useState<"kanban" | "list">("kanban");
   const { toast } = useToast();
   
   const [newOrder, setNewOrder] = useState<Omit<Order, 'id' | 'created_at' | 'updated_at'>>({
@@ -166,10 +176,11 @@ const OrdersPage = () => {
         
         return {
           ...order,
+          id: order.id.toString(),
           material_name: materialName,
           service_name: serviceName,
           assignedStaff,
-          payments: paymentsData || []
+          payments: paymentsData ? paymentsData.map(p => ({...p, id: p.id.toString(), order_id: p.order_id.toString()})) : []
         };
       }));
       
@@ -368,7 +379,7 @@ const OrdersPage = () => {
       const { error } = await supabase
         .from('orders')
         .update({ order_status: newStatus })
-        .eq('id', draggableId);
+        .eq('id', parseInt(draggableId));
       
       if (error) throw error;
       
@@ -400,6 +411,10 @@ const OrdersPage = () => {
     return orders.filter(order => order.order_status === status);
   };
 
+  const getTotalPaymentsForOrder = (order: Order) => {
+    return order.payments?.reduce((total, payment) => total + payment.amount, 0) || 0;
+  };
+
   return (
     <div className="p-8">
       <div className="flex justify-between items-center mb-6">
@@ -407,10 +422,30 @@ const OrdersPage = () => {
           <h1 className="text-2xl font-bold text-gray-800">Orders & CRM</h1>
           <p className="text-gray-600">Track customer orders through the pipeline.</p>
         </div>
-        <Button onClick={() => setIsNewOrderDialogOpen(true)}>
-          <PlusCircle className="mr-2 h-4 w-4" />
-          New Order
-        </Button>
+        <div className="flex gap-4">
+          <div className="flex items-center space-x-1 border rounded-md">
+            <Button 
+              variant={viewMode === "kanban" ? "default" : "ghost"} 
+              size="sm"
+              onClick={() => setViewMode("kanban")}
+              className="rounded-r-none"
+            >
+              <LayoutGrid className="h-4 w-4 mr-1" /> Kanban
+            </Button>
+            <Button 
+              variant={viewMode === "list" ? "default" : "ghost"} 
+              size="sm"
+              onClick={() => setViewMode("list")}
+              className="rounded-l-none"
+            >
+              <List className="h-4 w-4 mr-1" /> List
+            </Button>
+          </div>
+          <Button onClick={() => setIsNewOrderDialogOpen(true)}>
+            <PlusCircle className="mr-2 h-4 w-4" />
+            New Order
+          </Button>
+        </div>
       </div>
 
       {loading ? (
@@ -419,51 +454,149 @@ const OrdersPage = () => {
           <p>Loading orders...</p>
         </div>
       ) : (
-        <DragDropContext onDragEnd={handleDragEnd}>
-          <div className="grid grid-cols-6 gap-4">
-            {statusList.map((status) => (
-              <div key={status.id} className="flex flex-col">
-                <div className={`flex items-center justify-between rounded-t-md p-3 ${status.color}`}>
-                  <h3 className="font-medium text-sm">{status.name}</h3>
-                  <Badge variant="outline" className="bg-white">
-                    {getOrdersByStatus(status.id).length}
-                  </Badge>
-                </div>
-                <Droppable droppableId={status.id}>
-                  {(provided) => (
-                    <div
-                      ref={provided.innerRef}
-                      {...provided.droppableProps}
-                      className="flex-1 min-h-[500px] bg-gray-50 rounded-b-md p-2 border border-t-0"
-                    >
-                      {getOrdersByStatus(status.id).length === 0 ? (
-                        <div className="text-center py-4 flex flex-col items-center justify-center h-full opacity-50">
-                          <AlertCircle className="h-6 w-6 mb-2" />
-                          <p className="text-xs">No orders</p>
-                        </div>
-                      ) : (
-                        getOrdersByStatus(status.id).map((order, index) => (
-                          <Draggable key={order.id} draggableId={order.id} index={index}>
-                            {(provided) => (
-                              <div
-                                ref={provided.innerRef}
-                                {...provided.draggableProps}
-                                {...provided.dragHandleProps}
-                              >
-                                <OrderCard order={order} fetchOrders={fetchOrders} />
+        <>
+          {viewMode === "kanban" ? (
+            <div className="overflow-x-auto pb-4">
+              <DragDropContext onDragEnd={handleDragEnd}>
+                <div className="grid grid-cols-6 gap-4 min-w-[1200px]">
+                  {statusList.map((status) => (
+                    <div key={status.id} className="flex flex-col">
+                      <div className={`flex items-center justify-between rounded-t-md p-3 ${status.color}`}>
+                        <h3 className="font-medium text-sm">{status.name}</h3>
+                        <Badge variant="outline" className="bg-white">
+                          {getOrdersByStatus(status.id).length}
+                        </Badge>
+                      </div>
+                      <Droppable droppableId={status.id}>
+                        {(provided) => (
+                          <div
+                            ref={provided.innerRef}
+                            {...provided.droppableProps}
+                            className="flex-1 min-h-[500px] bg-gray-50 rounded-b-md p-2 border border-t-0"
+                          >
+                            {getOrdersByStatus(status.id).length === 0 ? (
+                              <div className="text-center py-4 flex flex-col items-center justify-center h-full opacity-50">
+                                <AlertCircle className="h-6 w-6 mb-2" />
+                                <p className="text-xs">No orders</p>
                               </div>
+                            ) : (
+                              getOrdersByStatus(status.id).map((order, index) => (
+                                <Draggable key={order.id} draggableId={order.id} index={index}>
+                                  {(provided) => (
+                                    <div
+                                      ref={provided.innerRef}
+                                      {...provided.draggableProps}
+                                      {...provided.dragHandleProps}
+                                    >
+                                      <OrderCard order={order} fetchOrders={fetchOrders} />
+                                    </div>
+                                  )}
+                                </Draggable>
+                              ))
                             )}
-                          </Draggable>
-                        ))
-                      )}
-                      {provided.placeholder}
+                            {provided.placeholder}
+                          </div>
+                        )}
+                      </Droppable>
                     </div>
+                  ))}
+                </div>
+              </DragDropContext>
+            </div>
+          ) : (
+            <div className="bg-white rounded-md shadow">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Client</TableHead>
+                    <TableHead>Contact</TableHead>
+                    <TableHead>Material</TableHead>
+                    <TableHead>Service</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Total Price</TableHead>
+                    <TableHead>Paid</TableHead>
+                    <TableHead>Outstanding</TableHead>
+                    <TableHead>Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {orders.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={9} className="text-center py-8">
+                        No orders found
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    orders.map((order) => {
+                      const totalPaid = getTotalPaymentsForOrder(order);
+                      const outstanding = (order.final_price || 0) - totalPaid;
+                      const status = statusList.find(s => s.id === order.order_status);
+                      
+                      return (
+                        <TableRow key={order.id}>
+                          <TableCell>
+                            <div className="font-medium">{order.client_name}</div>
+                            <div className="text-sm text-muted-foreground">{order.location}</div>
+                          </TableCell>
+                          <TableCell>{order.phone}</TableCell>
+                          <TableCell>
+                            {order.material_name ? (
+                              <div>
+                                {order.material_name}
+                                <div className="text-xs text-muted-foreground">
+                                  Qty: {order.material_qty}
+                                </div>
+                              </div>
+                            ) : (
+                              "-"
+                            )}
+                          </TableCell>
+                          <TableCell>{order.service_name || "-"}</TableCell>
+                          <TableCell>
+                            <Badge 
+                              className={
+                                order.order_status === "completed" ? "bg-green-100 text-green-800 hover:bg-green-200" : 
+                                order.order_status === "cancelled" ? "bg-red-100 text-red-800 hover:bg-red-200" : 
+                                order.order_status === "progressing" ? "bg-yellow-100 text-yellow-800 hover:bg-yellow-200" :
+                                order.order_status === "confirmed" ? "bg-cyan-100 text-cyan-800 hover:bg-cyan-200" :
+                                order.order_status === "contacted" ? "bg-blue-100 text-blue-800 hover:bg-blue-200" :
+                                "bg-purple-100 text-purple-800 hover:bg-purple-200"
+                              }
+                            >
+                              {status?.name}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>₹{order.final_price?.toLocaleString() || 0}</TableCell>
+                          <TableCell>₹{totalPaid.toLocaleString()}</TableCell>
+                          <TableCell>
+                            <span className={outstanding > 0 ? "text-red-600" : "text-green-600"}>
+                              ₹{outstanding.toLocaleString()}
+                            </span>
+                          </TableCell>
+                          <TableCell>
+                            <Button 
+                              variant="outline" 
+                              size="sm" 
+                              onClick={() => {
+                                // Use the edit dialog in OrderCard
+                                const orderElement = document.querySelector(`[data-order-id="${order.id}"] .edit-button`) as HTMLElement;
+                                if (orderElement) {
+                                  orderElement.click();
+                                }
+                              }}
+                            >
+                              Edit
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
                   )}
-                </Droppable>
-              </div>
-            ))}
-          </div>
-        </DragDropContext>
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </>
       )}
 
       <Dialog open={isNewOrderDialogOpen} onOpenChange={setIsNewOrderDialogOpen}>
@@ -471,6 +604,7 @@ const OrdersPage = () => {
           <ScrollArea className="max-h-[80vh] pr-4">
             <DialogHeader>
               <DialogTitle>Add New Order</DialogTitle>
+              <DialogDescription>Create a new customer order or lead</DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
               <div className="space-y-2">
@@ -487,7 +621,7 @@ const OrdersPage = () => {
                 <Input
                   id="phone"
                   name="phone"
-                  value={newOrder.phone}
+                  value={newOrder.phone || ''}
                   onChange={handleInputChange}
                 />
               </div>
@@ -496,7 +630,7 @@ const OrdersPage = () => {
                 <Input
                   id="location"
                   name="location"
-                  value={newOrder.location}
+                  value={newOrder.location || ''}
                   onChange={handleInputChange}
                 />
               </div>
