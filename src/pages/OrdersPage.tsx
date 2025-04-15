@@ -41,6 +41,7 @@ export interface Order {
   // Frontend-only properties
   material_name?: string;
   service_name?: string;
+  machine_name?: string;
   assignedStaff?: { id: number; name: string }[];
   payments?: Payment[];
 }
@@ -91,8 +92,10 @@ const OrdersPage = () => {
   const [staffList, setStaffList] = useState<Staff[]>([]);
   const [isNewOrderDialogOpen, setIsNewOrderDialogOpen] = useState(false);
   const [selectedOrderForEdit, setSelectedOrderForEdit] = useState<Order | null>(null);
+  const [isEditOrderDialogOpen, setIsEditOrderDialogOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState<"kanban" | "list">("kanban");
+  const [searchTerm, setSearchTerm] = useState<string>("");
   const { toast } = useToast();
   
   const [newOrder, setNewOrder] = useState<Omit<Order, 'id' | 'created_at' | 'updated_at'>>({
@@ -157,6 +160,19 @@ const OrdersPage = () => {
           }
         }
         
+        // Get machine details if available
+        let machineName = "";
+        if (order.machine_id) {
+          const { data: machineData } = await supabase
+            .from('machines')
+            .select('name')
+            .eq('id', order.machine_id)
+            .single();
+          if (machineData) {
+            machineName = machineData.name;
+          }
+        }
+        
         // Get assigned staff for this order
         const { data: staffData } = await supabase
           .from('order_staff')
@@ -199,6 +215,7 @@ const OrdersPage = () => {
           order_status: validOrderStatus(order.order_status),
           material_name: materialName,
           service_name: serviceName,
+          machine_name: machineName,
           assignedStaff,
           payments: paymentsData ? paymentsData.map(p => ({
             ...p, 
@@ -393,11 +410,10 @@ const OrdersPage = () => {
     });
   };
 
+  // Since the list view uses direct buttons, we're not using this function anymore
+  // and will modify the button in the TableCell instead
   const handleEditClick = (order: Order) => {
     setSelectedOrderForEdit(order);
-    document.querySelector(`[data-order-id="${order.id}"] .edit-button`)?.dispatchEvent(
-      new MouseEvent('click', { bubbles: true })
-    );
   };
 
   const handleDragEnd = async (result: any) => {
@@ -440,7 +456,19 @@ const OrdersPage = () => {
   };
 
   const getOrdersByStatus = (status: string) => {
-    return orders.filter(order => order.order_status === status);
+    return orders.filter(order => {
+      // First filter by status
+      const statusMatch = order.order_status === status;
+      
+      // If search term exists, filter by client name or phone number
+      if (searchTerm.trim()) {
+        const nameMatch = order.client_name.toLowerCase().includes(searchTerm.toLowerCase());
+        const phoneMatch = order.phone && order.phone.includes(searchTerm);
+        return statusMatch && (nameMatch || phoneMatch);
+      }
+      
+      return statusMatch;
+    });
   };
 
   const getTotalPaymentsForOrder = (order: Order) => {
@@ -454,7 +482,15 @@ const OrdersPage = () => {
           <h1 className="text-2xl font-bold text-gray-800">Orders & CRM</h1>
           <p className="text-gray-600">Track customer orders through the pipeline.</p>
         </div>
-        <div className="flex gap-4">
+        <div className="flex gap-4 items-center">
+          <div className="max-w-xs">
+            <Input
+              placeholder="Search by name or phone..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="h-9"
+            />
+          </div>
           <div className="flex items-center space-x-1 border rounded-md">
             <Button 
               variant={viewMode === "kanban" ? "default" : "ghost"} 
@@ -545,6 +581,7 @@ const OrdersPage = () => {
                     <TableHead>Contact</TableHead>
                     <TableHead>Material</TableHead>
                     <TableHead>Service</TableHead>
+                    <TableHead>Machine</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Total Price</TableHead>
                     <TableHead>Paid</TableHead>
@@ -560,7 +597,14 @@ const OrdersPage = () => {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    orders.map((order) => {
+                    orders.filter(order => {
+                      if (searchTerm.trim()) {
+                        const nameMatch = order.client_name.toLowerCase().includes(searchTerm.toLowerCase());
+                        const phoneMatch = order.phone && order.phone.includes(searchTerm);
+                        return nameMatch || phoneMatch;
+                      }
+                      return true;
+                    }).map((order) => {
                       const totalPaid = getTotalPaymentsForOrder(order);
                       const outstanding = (order.final_price || 0) - totalPaid;
                       const status = statusList.find(s => s.id === order.order_status);
@@ -586,6 +630,16 @@ const OrdersPage = () => {
                           </TableCell>
                           <TableCell>{order.service_name || "-"}</TableCell>
                           <TableCell>
+                            {(() => {
+                              // Find the machine name
+                              if (order.machine_id) {
+                                const machine = machines.find(m => m.id === order.machine_id);
+                                return machine ? machine.name : "-";
+                              }
+                              return "-";
+                            })()}
+                          </TableCell>
+                          <TableCell>
                             <Badge 
                               className={
                                 order.order_status === "completed" ? "bg-green-100 text-green-800 hover:bg-green-200" : 
@@ -610,8 +664,10 @@ const OrdersPage = () => {
                             <Button 
                               variant="outline" 
                               size="sm" 
-                              onClick={() => handleEditClick(order)}
-                              className="edit-list-button"
+                              onClick={() => {
+                                setSelectedOrderForEdit({...order});
+                                setIsEditOrderDialogOpen(true);
+                              }}
                             >
                               Edit
                             </Button>
@@ -627,6 +683,226 @@ const OrdersPage = () => {
         </>
       )}
 
+      {/* Edit Order Dialog for List View */}
+      {selectedOrderForEdit && (
+        <Dialog open={isEditOrderDialogOpen} onOpenChange={setIsEditOrderDialogOpen}>
+          <DialogContent className="max-h-[90vh]">
+            <ScrollArea className="max-h-[80vh] pr-4">
+              <DialogHeader>
+                <DialogTitle>Edit Order</DialogTitle>
+                <DialogDescription>Update order details and status</DialogDescription>
+              </DialogHeader>
+              <div className="grid gap-4 py-4">
+                <div className="space-y-2">
+                  <Label htmlFor="edit_client_name">Client Name</Label>
+                  <Input
+                    id="edit_client_name"
+                    value={selectedOrderForEdit.client_name}
+                    onChange={(e) => setSelectedOrderForEdit({...selectedOrderForEdit, client_name: e.target.value})}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit_phone">Phone Number</Label>
+                  <Input
+                    id="edit_phone"
+                    value={selectedOrderForEdit.phone || ''}
+                    onChange={(e) => setSelectedOrderForEdit({...selectedOrderForEdit, phone: e.target.value})}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit_location">Location</Label>
+                  <Input
+                    id="edit_location"
+                    value={selectedOrderForEdit.location || ''}
+                    onChange={(e) => setSelectedOrderForEdit({...selectedOrderForEdit, location: e.target.value})}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit_order_status">Status</Label>
+                  <Select 
+                    value={selectedOrderForEdit.order_status} 
+                    onValueChange={(val: Order['order_status']) => setSelectedOrderForEdit({...selectedOrderForEdit, order_status: val})}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {statusList.map((status) => (
+                        <SelectItem key={status.id} value={status.id as Order['order_status']}>
+                          {status.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit_material_id">Material</Label>
+                  <Select 
+                    value={selectedOrderForEdit.material_id?.toString() || ''} 
+                    onValueChange={(value) => {
+                      setSelectedOrderForEdit({
+                        ...selectedOrderForEdit, 
+                        material_id: value ? parseInt(value) : null
+                      });
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select material" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {materials.map((material) => (
+                        <SelectItem key={material.id} value={material.id.toString()}>
+                          {material.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit_material_qty">Quantity</Label>
+                  <Input
+                    id="edit_material_qty"
+                    type="number"
+                    value={selectedOrderForEdit.material_qty || ''}
+                    onChange={(e) => setSelectedOrderForEdit({
+                      ...selectedOrderForEdit,
+                      material_qty: e.target.value ? parseFloat(e.target.value) : null
+                    })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit_service_id">Service</Label>
+                  <Select 
+                    value={selectedOrderForEdit.service_id?.toString() || ''} 
+                    onValueChange={(value) => {
+                      const serviceId = value ? parseInt(value) : null;
+                      const selectedService = services.find(s => s.id === serviceId);
+                      
+                      setSelectedOrderForEdit({
+                        ...selectedOrderForEdit, 
+                        service_id: serviceId,
+                        base_price: selectedService ? selectedService.price : selectedOrderForEdit.base_price
+                      });
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select service" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {services.map((service) => (
+                        <SelectItem key={service.id} value={service.id.toString()}>
+                          {service.name} - ₹{service.price}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit_machine_id">Machine</Label>
+                  <Select 
+                    value={selectedOrderForEdit.machine_id?.toString() || ''} 
+                    onValueChange={(value) => {
+                      setSelectedOrderForEdit({
+                        ...selectedOrderForEdit, 
+                        machine_id: value ? parseInt(value) : null
+                      });
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select machine" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">None</SelectItem>
+                      {machines.map((machine) => (
+                        <SelectItem key={machine.id} value={machine.id.toString()}>
+                          {machine.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="edit_base_price">Base Price (₹)</Label>
+                    <Input
+                      id="edit_base_price"
+                      type="number"
+                      value={selectedOrderForEdit.base_price || ''}
+                      onChange={(e) => setSelectedOrderForEdit({
+                        ...selectedOrderForEdit,
+                        base_price: e.target.value ? parseFloat(e.target.value) : null
+                      })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="edit_additional_charges">Additional Charges (₹)</Label>
+                    <Input
+                      id="edit_additional_charges"
+                      type="number"
+                      value={selectedOrderForEdit.additional_charges || ''}
+                      onChange={(e) => setSelectedOrderForEdit({
+                        ...selectedOrderForEdit,
+                        additional_charges: e.target.value ? parseFloat(e.target.value) : null
+                      })}
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Total Price (₹)</Label>
+                  <div className="text-xl font-bold">
+                    ₹ {((selectedOrderForEdit.base_price || 0) + (selectedOrderForEdit.additional_charges || 0)).toLocaleString()}
+                  </div>
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setIsEditOrderDialogOpen(false)}>Cancel</Button>
+                <Button onClick={async () => {
+                  try {
+                    const finalPrice = (selectedOrderForEdit.base_price || 0) + (selectedOrderForEdit.additional_charges || 0);
+                    
+                    const { error } = await supabase
+                      .from('orders')
+                      .update({ 
+                        client_name: selectedOrderForEdit.client_name,
+                        phone: selectedOrderForEdit.phone,
+                        location: selectedOrderForEdit.location,
+                        material_id: selectedOrderForEdit.material_id,
+                        material_qty: selectedOrderForEdit.material_qty,
+                        service_id: selectedOrderForEdit.service_id,
+                        machine_id: selectedOrderForEdit.machine_id,
+                        base_price: selectedOrderForEdit.base_price,
+                        additional_charges: selectedOrderForEdit.additional_charges,
+                        final_price: finalPrice,
+                        order_status: selectedOrderForEdit.order_status
+                      })
+                      .eq('id', parseInt(selectedOrderForEdit.id));
+                    
+                    if (error) throw error;
+                    
+                    toast({
+                      title: "Success",
+                      description: "Order updated successfully",
+                    });
+                    
+                    setIsEditOrderDialogOpen(false);
+                    fetchOrders();
+                  } catch (error) {
+                    console.error('Error updating order:', error);
+                    toast({
+                      title: "Error",
+                      description: "Failed to update order",
+                      variant: "destructive",
+                    });
+                  }
+                }}>
+                  Save Changes
+                </Button>
+              </DialogFooter>
+            </ScrollArea>
+          </DialogContent>
+        </Dialog>
+      )}
+      
       <Dialog open={isNewOrderDialogOpen} onOpenChange={setIsNewOrderDialogOpen}>
         <DialogContent className="max-h-[90vh]">
           <ScrollArea className="max-h-[80vh] pr-4">
@@ -705,6 +981,25 @@ const OrdersPage = () => {
                     {services.map((service) => (
                       <SelectItem key={service.id} value={service.id.toString()}>
                         {service.name} - ₹{service.price}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="machine_id">Machine</Label>
+                <Select 
+                  value={newOrder.machine_id?.toString() || ''} 
+                  onValueChange={(value) => handleSelectChange('machine_id', value)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select machine" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">None</SelectItem>
+                    {machines.map((machine) => (
+                      <SelectItem key={machine.id} value={machine.id.toString()}>
+                        {machine.name}
                       </SelectItem>
                     ))}
                   </SelectContent>

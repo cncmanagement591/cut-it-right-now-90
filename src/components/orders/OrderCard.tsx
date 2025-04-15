@@ -1,5 +1,5 @@
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Card, CardContent } from "@/components/ui/card";
@@ -17,17 +17,37 @@ import { Order, Payment, Staff, Material, Service, Machine } from "@/pages/Order
 interface OrderCardProps {
   order: Order;
   fetchOrders: () => void;
+  listView?: boolean;
+  triggerEdit?: boolean;
+  onEditProcessed?: () => void;
 }
 
-export const OrderCard = ({ order, fetchOrders }: OrderCardProps) => {
+export const OrderCard = ({ order, fetchOrders, listView, triggerEdit, onEditProcessed }: OrderCardProps) => {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  
+  // If triggerEdit is true, open the edit dialog
+  useEffect(() => {
+    if (triggerEdit) {
+      setIsEditDialogOpen(true);
+      if (onEditProcessed) {
+        onEditProcessed();
+      }
+    }
+  }, [triggerEdit, onEditProcessed]);
+
+  // Fetch machines when the component mounts
+  useEffect(() => {
+    fetchMachines();
+  }, []);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isPaymentDialogOpen, setIsPaymentDialogOpen] = useState(false);
   const [isAssignStaffDialogOpen, setIsAssignStaffDialogOpen] = useState(false);
+  const [isAssignMachineDialogOpen, setIsAssignMachineDialogOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [editedOrder, setEditedOrder] = useState<Order>({ ...order });
   const [staffList, setStaffList] = useState<Staff[]>([]);
   const [selectedStaff, setSelectedStaff] = useState<number[]>(order.assignedStaff?.map(s => s.id) || []);
+  const [selectedMachine, setSelectedMachine] = useState<number | null>(order.machine_id);
   const [materials, setMaterials] = useState<Material[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [machines, setMachines] = useState<Machine[]>([]);
@@ -41,6 +61,12 @@ export const OrderCard = ({ order, fetchOrders }: OrderCardProps) => {
 
   const totalPaid = order.payments?.reduce((sum, p) => sum + p.amount, 0) || 0;
   const remainingAmount = (order.final_price || 0) - totalPaid;
+
+  const getMachineName = (machineId: number | null) => {
+    if (!machineId) return "";
+    const machine = machines.find(m => m.id === machineId);
+    return machine ? machine.name : "";
+  };
 
   const handleEditOrder = async () => {
     try {
@@ -305,6 +331,38 @@ export const OrderCard = ({ order, fetchOrders }: OrderCardProps) => {
     });
   };
 
+  const handleAssignMachine = async () => {
+    try {
+      setLoading(true);
+      
+      const { error } = await supabase
+        .from('orders')
+        .update({ 
+          machine_id: selectedMachine
+        })
+        .eq('id', parseInt(order.id));
+      
+      if (error) throw error;
+      
+      toast({
+        title: "Success",
+        description: "Machine assigned successfully",
+      });
+      
+      setIsAssignMachineDialogOpen(false);
+      fetchOrders();
+    } catch (error) {
+      console.error('Error assigning machine:', error);
+      toast({
+        title: "Error",
+        description: "Failed to assign machine",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <Card className="mb-3 shadow-sm hover:shadow transition-shadow">
       <CardContent className="p-3">
@@ -335,7 +393,7 @@ export const OrderCard = ({ order, fetchOrders }: OrderCardProps) => {
           <div>Location: {order.location}</div>
         </div>
         
-        {(order.material_name || order.service_name) && (
+        {(order.material_name || order.service_name || order.machine_id) && (
           <div className="text-xs text-gray-700 mb-2">
             {order.material_name && (
               <div>
@@ -344,6 +402,11 @@ export const OrderCard = ({ order, fetchOrders }: OrderCardProps) => {
             )}
             {order.service_name && (
               <div>Service: {order.service_name}</div>
+            )}
+            {order.machine_name && (
+              <div>
+                Machine: {order.machine_name}
+              </div>
             )}
           </div>
         )}
@@ -364,11 +427,17 @@ export const OrderCard = ({ order, fetchOrders }: OrderCardProps) => {
           </div>
         )}
         
-        <div className="flex justify-between mt-3">
+        {order.machine_id && (
+          <div className="text-xs mb-2">
+            <span className="font-semibold">Machine:</span> {getMachineName(order.machine_id)}
+          </div>
+        )}
+        
+        <div className="flex flex-wrap gap-2 mt-3">
           <Button 
             size="sm" 
             variant="outline" 
-            className="text-xs"
+            className="text-xs flex-1"
             onClick={() => {
               setPayment({
                 order_id: order.id,
@@ -384,13 +453,24 @@ export const OrderCard = ({ order, fetchOrders }: OrderCardProps) => {
           <Button 
             size="sm" 
             variant="outline" 
-            className="text-xs"
+            className="text-xs flex-1"
             onClick={() => {
               fetchStaff();
               setIsAssignStaffDialogOpen(true);
             }}
           >
             <Users className="h-3 w-3 mr-1" /> Assign Staff
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="text-xs w-full mt-2"
+            onClick={() => {
+              fetchMachines();
+              setIsAssignMachineDialogOpen(true);
+            }}
+          >
+            <span className="h-3 w-3 mr-1">🔧</span> Assign Machine
           </Button>
         </div>
       </CardContent>
@@ -640,6 +720,46 @@ export const OrderCard = ({ order, fetchOrders }: OrderCardProps) => {
             <Button variant="outline" onClick={() => setIsAssignStaffDialogOpen(false)}>Cancel</Button>
             <Button onClick={handleAssignStaff} disabled={loading}>
               {loading ? "Saving..." : "Save Assignments"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Assign Machine Dialog */}
+      <Dialog open={isAssignMachineDialogOpen} onOpenChange={setIsAssignMachineDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Assign Machine to Order</DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <Label className="mb-2 block">Select Machine</Label>
+            {machines.length === 0 ? (
+              <p className="text-center py-4 text-sm text-gray-500">No machines found</p>
+            ) : (
+              <div className="space-y-2">
+                <Select 
+                  value={selectedMachine?.toString() || ''} 
+                  onValueChange={(value) => setSelectedMachine(value ? parseInt(value) : null)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a machine" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">None</SelectItem>
+                    {machines.map((machine) => (
+                      <SelectItem key={machine.id} value={machine.id.toString()}>
+                        {machine.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsAssignMachineDialogOpen(false)}>Cancel</Button>
+            <Button onClick={handleAssignMachine} disabled={loading}>
+              {loading ? "Saving..." : "Save Assignment"}
             </Button>
           </DialogFooter>
         </DialogContent>
