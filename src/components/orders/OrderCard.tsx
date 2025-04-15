@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
@@ -25,7 +24,6 @@ interface OrderCardProps {
 export const OrderCard = ({ order, fetchOrders, listView, triggerEdit, onEditProcessed }: OrderCardProps) => {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   
-  // If triggerEdit is true, open the edit dialog
   useEffect(() => {
     if (triggerEdit) {
       setIsEditDialogOpen(true);
@@ -35,7 +33,6 @@ export const OrderCard = ({ order, fetchOrders, listView, triggerEdit, onEditPro
     }
   }, [triggerEdit, onEditProcessed]);
 
-  // Fetch machines when the component mounts
   useEffect(() => {
     fetchMachines();
   }, []);
@@ -238,13 +235,11 @@ export const OrderCard = ({ order, fetchOrders, listView, triggerEdit, onEditPro
     try {
       setLoading(true);
       
-      // First, delete existing assignments
       await supabase
         .from('order_staff')
         .delete()
         .eq('order_id', parseInt(order.id));
       
-      // Then add new assignments
       if (selectedStaff.length > 0) {
         const staffAssignments = selectedStaff.map(staffId => ({
           order_id: parseInt(order.id),
@@ -294,7 +289,6 @@ export const OrderCard = ({ order, fetchOrders, listView, triggerEdit, onEditPro
         [name]: value ? parseInt(value) : null
       }));
 
-      // If service is selected, update the base price
       if (name === 'service_id' && value) {
         const serviceId = parseInt(value);
         const selectedService = services.find(s => s.id === serviceId);
@@ -475,7 +469,6 @@ export const OrderCard = ({ order, fetchOrders, listView, triggerEdit, onEditPro
         </div>
       </CardContent>
 
-      {/* Edit Dialog */}
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
         <DialogContent className="max-h-[90vh]">
           <ScrollArea className="max-h-[80vh] pr-4">
@@ -615,7 +608,6 @@ export const OrderCard = ({ order, fetchOrders, listView, triggerEdit, onEditPro
         </DialogContent>
       </Dialog>
 
-      {/* Delete Dialog */}
       <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
         <DialogContent>
           <DialogHeader>
@@ -633,7 +625,6 @@ export const OrderCard = ({ order, fetchOrders, listView, triggerEdit, onEditPro
         </DialogContent>
       </Dialog>
 
-      {/* Payment Dialog */}
       <Dialog open={isPaymentDialogOpen} onOpenChange={setIsPaymentDialogOpen}>
         <DialogContent>
           <DialogHeader>
@@ -689,7 +680,6 @@ export const OrderCard = ({ order, fetchOrders, listView, triggerEdit, onEditPro
         </DialogContent>
       </Dialog>
 
-      {/* Assign Staff Dialog */}
       <Dialog open={isAssignStaffDialogOpen} onOpenChange={setIsAssignStaffDialogOpen}>
         <DialogContent>
           <DialogHeader>
@@ -725,7 +715,6 @@ export const OrderCard = ({ order, fetchOrders, listView, triggerEdit, onEditPro
         </DialogContent>
       </Dialog>
 
-      {/* Assign Machine Dialog */}
       <Dialog open={isAssignMachineDialogOpen} onOpenChange={setIsAssignMachineDialogOpen}>
         <DialogContent>
           <DialogHeader>
@@ -745,7 +734,7 @@ export const OrderCard = ({ order, fetchOrders, listView, triggerEdit, onEditPro
                     <SelectValue placeholder="Select a machine" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">None</SelectItem>
+                    <SelectItem value="none">None</SelectItem>
                     {machines.map((machine) => (
                       <SelectItem key={machine.id} value={machine.id.toString()}>
                         {machine.name}

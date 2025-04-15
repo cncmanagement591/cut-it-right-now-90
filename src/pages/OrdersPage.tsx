@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -38,7 +37,6 @@ export interface Order {
   order_status: "lead" | "contacted" | "confirmed" | "progressing" | "completed" | "cancelled";
   created_at: string | null;
   updated_at: string | null;
-  // Frontend-only properties
   material_name?: string;
   service_name?: string;
   machine_name?: string;
@@ -132,9 +130,7 @@ const OrdersPage = () => {
         throw error;
       }
       
-      // Fetch additional information for orders
       const ordersWithDetails = await Promise.all(data.map(async (order) => {
-        // Get material details if available
         let materialName = "";
         if (order.material_id) {
           const { data: materialData } = await supabase
@@ -147,7 +143,6 @@ const OrdersPage = () => {
           }
         }
         
-        // Get service details if available
         let serviceName = "";
         if (order.service_id) {
           const { data: serviceData } = await supabase
@@ -160,7 +155,6 @@ const OrdersPage = () => {
           }
         }
         
-        // Get machine details if available
         let machineName = "";
         if (order.machine_id) {
           const { data: machineData } = await supabase
@@ -173,7 +167,6 @@ const OrdersPage = () => {
           }
         }
         
-        // Get assigned staff for this order
         const { data: staffData } = await supabase
           .from('order_staff')
           .select('staff_id, staff(id, name)')
@@ -184,29 +177,26 @@ const OrdersPage = () => {
           name: s.staff.name
         })) || [];
         
-        // Get payments for this order
         const { data: paymentsData } = await supabase
           .from('payments')
           .select('*')
           .eq('order_id', order.id)
           .order('payment_date', { ascending: false });
         
-        // Ensure order_status is one of the allowed values from the interface
         const validOrderStatus = (status: string): Order['order_status'] => {
           const validStatuses: Order['order_status'][] = [
             "lead", "contacted", "confirmed", "progressing", "completed", "cancelled"
           ];
           return validStatuses.includes(status as Order['order_status']) 
             ? (status as Order['order_status']) 
-            : "lead"; // Default to "lead" if invalid status
+            : "lead";
         };
         
-        // Ensure payment_mode is one of the allowed values
         const validPaymentMode = (mode: string): Payment['payment_mode'] => {
           const validModes: Payment['payment_mode'][] = ["cash", "card", "upi", "credit"];
           return validModes.includes(mode as Payment['payment_mode'])
             ? (mode as Payment['payment_mode'])
-            : "cash"; // Default to "cash" if invalid mode
+            : "cash";
         };
         
         return {
@@ -326,7 +316,6 @@ const OrdersPage = () => {
         [name]: value ? parseInt(value) : null
       }));
 
-      // If service is selected, update the base price
       if (name === 'service_id' && value) {
         const serviceId = parseInt(value);
         const selectedService = services.find(s => s.id === serviceId);
@@ -410,8 +399,6 @@ const OrdersPage = () => {
     });
   };
 
-  // Since the list view uses direct buttons, we're not using this function anymore
-  // and will modify the button in the TableCell instead
   const handleEditClick = (order: Order) => {
     setSelectedOrderForEdit(order);
   };
@@ -423,7 +410,6 @@ const OrdersPage = () => {
     const newStatus = destination.droppableId;
     
     try {
-      // Update the status in Supabase
       const { error } = await supabase
         .from('orders')
         .update({ order_status: newStatus })
@@ -431,7 +417,6 @@ const OrdersPage = () => {
       
       if (error) throw error;
       
-      // Update local state
       const updatedOrders = orders.map(order => {
         if (order.id === draggableId) {
           return { ...order, order_status: newStatus as Order['order_status'] };
@@ -457,10 +442,8 @@ const OrdersPage = () => {
 
   const getOrdersByStatus = (status: string) => {
     return orders.filter(order => {
-      // First filter by status
       const statusMatch = order.order_status === status;
       
-      // If search term exists, filter by client name or phone number
       if (searchTerm.trim()) {
         const nameMatch = order.client_name.toLowerCase().includes(searchTerm.toLowerCase());
         const phoneMatch = order.phone && order.phone.includes(searchTerm);
@@ -631,7 +614,6 @@ const OrdersPage = () => {
                           <TableCell>{order.service_name || "-"}</TableCell>
                           <TableCell>
                             {(() => {
-                              // Find the machine name
                               if (order.machine_id) {
                                 const machine = machines.find(m => m.id === order.machine_id);
                                 return machine ? machine.name : "-";
@@ -683,7 +665,6 @@ const OrdersPage = () => {
         </>
       )}
 
-      {/* Edit Order Dialog for List View */}
       {selectedOrderForEdit && (
         <Dialog open={isEditOrderDialogOpen} onOpenChange={setIsEditOrderDialogOpen}>
           <DialogContent className="max-h-[90vh]">
@@ -812,7 +793,7 @@ const OrdersPage = () => {
                       <SelectValue placeholder="Select machine" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">None</SelectItem>
+                      <SelectItem value="none">None</SelectItem>
                       {machines.map((machine) => (
                         <SelectItem key={machine.id} value={machine.id.toString()}>
                           {machine.name}
@@ -996,7 +977,7 @@ const OrdersPage = () => {
                     <SelectValue placeholder="Select machine" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">None</SelectItem>
+                    <SelectItem value="none">None</SelectItem>
                     {machines.map((machine) => (
                       <SelectItem key={machine.id} value={machine.id.toString()}>
                         {machine.name}
