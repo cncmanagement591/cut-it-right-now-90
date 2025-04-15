@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -183,6 +184,14 @@ const OrdersPage = () => {
             : "lead"; // Default to "lead" if invalid status
         };
         
+        // Ensure payment_mode is one of the allowed values
+        const validPaymentMode = (mode: string): Payment['payment_mode'] => {
+          const validModes: Payment['payment_mode'][] = ["cash", "card", "upi", "credit"];
+          return validModes.includes(mode as Payment['payment_mode'])
+            ? (mode as Payment['payment_mode'])
+            : "cash"; // Default to "cash" if invalid mode
+        };
+        
         return {
           ...order,
           id: order.id.toString(),
@@ -193,7 +202,8 @@ const OrdersPage = () => {
           payments: paymentsData ? paymentsData.map(p => ({
             ...p, 
             id: p.id.toString(), 
-            order_id: p.order_id.toString()
+            order_id: p.order_id.toString(),
+            payment_mode: validPaymentMode(p.payment_mode)
           })) : []
         };
       }));
